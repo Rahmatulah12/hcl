@@ -208,7 +208,6 @@ func (r *Request) SetFormURLEncoded(data map[string]string) *Request {
 }
 
 func (r *Request) execute() (*Response, error) {
-	fmt.Println(r.request)
 	resp, err := r.Client.Do(r.request)
 	return (*Response)(resp), err
 }
