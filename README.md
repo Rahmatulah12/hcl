@@ -6,7 +6,7 @@ A brief description of what this project does and who it's for
 ## Installation
 
 ```bash
-  go get github.com/Rahmatulah12/hcl@v1.0.4
+  go get github.com/Rahmatulah12/hcl@v1.0.4 or go get github.com/Rahmatulah12/hcl@latest
 ```
 
 ### Example Without Circuit Breaker
