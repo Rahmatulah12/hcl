@@ -10,7 +10,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Struct sesuai dengan JSON
 type Response struct {
 	Transaction    Transaction    `json:"transaction"`
 	Service        Service        `json:"service"`

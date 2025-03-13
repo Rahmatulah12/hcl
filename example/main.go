@@ -9,7 +9,6 @@ import (
 	"github.com/Rahmatulah12/hcl"
 )
 
-// Struct sesuai dengan JSON
 type Response struct {
 	Transaction    Transaction    `json:"transaction"`
 	Service        Service        `json:"service"`
