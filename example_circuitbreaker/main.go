@@ -43,8 +43,21 @@ func main() {
 		Transport: tr,
 		Timeout:   10 * time.Second,
 	}
+	cb := hcl.NewCircuitBreaker(hcl.ExtraOptions{
+		Policy:       hcl.MaxFails,
+		OpenInterval: hcl.ToPointer(1 * time.Second),
+		MaxFails:     hcl.ToPointer(uint64(1)),
+	})
 
-	r := hcl.New(&hcl.HCL{Client: client})
+	/*
+		cb := hcl.NewCircuitBreaker(hcl.ExtraOptions{
+			Policy:              hcl.MaxConsecutiveFails,
+			MaxConsecutiveFails: hcl.ToPointer(uint64(3)),
+			OpenInterval:        hcl.ToPointer(1 * time.Second),
+		})
+	*/
+
+	r := hcl.New(&hcl.HCL{Client: client, Cb: cb})
 
 	for i := 0; i < 5; i++ {
 		proccess(r)

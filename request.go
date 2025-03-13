@@ -13,20 +13,26 @@ import (
 	"strconv"
 )
 
-type Client *http.Client
-
 const (
 	msg_failed_key_val = "something went wrong, please set key and value request"
 	msg_failed_body    = "something went wrong, please set body request"
+	example            = "http://example.com"
+	msg_empty_url      = "something went wrong, please set uri request"
 )
 
 type Request struct {
 	request *http.Request
 	Client  *http.Client
+	Cb      CircuitBreaker
 }
 
-func New(client Client) *Request {
-	req, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
+type HCL struct {
+	Client *http.Client
+	Cb     CircuitBreaker
+}
+
+func New(hcl *HCL) *Request {
+	req, err := http.NewRequest(http.MethodGet, "", nil)
 
 	if err != nil {
 		panic(err.Error())
@@ -34,13 +40,14 @@ func New(client Client) *Request {
 
 	return &Request{
 		request: req,
-		Client:  client,
+		Client:  hcl.Client,
+		Cb:      hcl.Cb,
 	}
 }
 
 func (r *Request) SetUrl(uri string) *Request {
 	if uri == "" {
-		panic("something went wrong, please set uri request")
+		panic(msg_empty_url)
 	}
 
 	parsedUrl, err := url.Parse(uri)
@@ -207,32 +214,111 @@ func (r *Request) SetFormURLEncoded(data map[string]string) *Request {
 	return r
 }
 
-func (r *Request) execute() (*Response, error) {
-	resp, err := r.Client.Do(r.request)
-	return (*Response)(resp), err
-}
-
 func (r *Request) Get() (*Response, error) {
 	r.request.Method = http.MethodGet
-	return r.execute()
+	if r.Cb == nil {
+		return r.execute()
+	}
+
+	if r.Cb.State() == string(open) {
+		return nil, ErrRefuse
+	}
+
+	return r.executeWithCb()
 }
 
 func (r *Request) Post() (*Response, error) {
 	r.request.Method = http.MethodPost
-	return r.execute()
+	if r.Cb == nil {
+		return r.execute()
+	}
+
+	if r.Cb.State() == string(open) {
+		return nil, ErrRefuse
+	}
+
+	return r.executeWithCb()
 }
 
 func (r *Request) Patch() (*Response, error) {
 	r.request.Method = http.MethodPatch
-	return r.execute()
+	if r.Cb == nil {
+		return r.execute()
+	}
+
+	if r.Cb.State() == string(open) {
+		return nil, ErrRefuse
+	}
+
+	return r.executeWithCb()
 }
 
 func (r *Request) Put() (*Response, error) {
 	r.request.Method = http.MethodPut
-	return r.execute()
+	if r.Cb == nil {
+		return r.execute()
+	}
+
+	if r.Cb.State() == string(open) {
+		return nil, ErrRefuse
+	}
+
+	return r.executeWithCb()
 }
 
 func (r *Request) Delete() (*Response, error) {
 	r.request.Method = http.MethodDelete
-	return r.execute()
+	if r.Cb == nil {
+		return r.execute()
+	}
+
+	if r.Cb.State() == string(open) {
+		return nil, ErrRefuse
+	}
+
+	return r.executeWithCb()
+}
+
+func (r *Request) execute() (*Response, error) {
+	resp, err := r.Client.Do(r.request)
+
+	if err != nil {
+		return (*Response)(resp), err
+	}
+
+	if resp.StatusCode >= http.StatusBadRequest {
+		return (*Response)(resp), fmt.Errorf("error, response from client: %s", resp.Status)
+	}
+
+	return (*Response)(resp), nil
+}
+
+func (r *Request) executeWithCb() (*Response, error) {
+	if r.Cb != nil && r.Cb.State() == string(open) {
+		return nil, ErrRefuse
+	}
+
+	proccess := func() (interface{}, error) {
+		resp, err := r.Client.Do(r.request)
+
+		if err != nil {
+			return (*Response)(resp), err
+		}
+
+		if resp.StatusCode >= http.StatusBadRequest {
+			return (*Response)(resp), fmt.Errorf("error, response from client: %s", resp.Status)
+		}
+
+		return (*Response)(resp), nil
+	}
+
+	resp, err := r.Cb.Execute(proccess)
+	var response *Response
+	response = resp.(*Response)
+
+	if err != nil {
+		return (*Response)(response), err
+	}
+
+	return (*Response)(response), nil
 }
