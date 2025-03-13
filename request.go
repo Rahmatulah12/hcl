@@ -293,6 +293,10 @@ func (r *Request) execute() (*Response, error) {
 }
 
 func (r *Request) executeWithCb() (*Response, error) {
+	if r.cbKey == "" {
+		return nil, fmt.Errorf("circuit breaker key cannot be empty")
+	}
+
 	if err := r.cb.allowRequest(r.cbKey); err != nil {
 		return nil, err
 	}
