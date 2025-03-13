@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Rahmatulah12/hcl"
+	"github.com/redis/go-redis/v9"
 )
 
 // Struct sesuai dengan JSON
@@ -43,24 +44,21 @@ func main() {
 		Transport: tr,
 		Timeout:   10 * time.Second,
 	}
-	cb := hcl.NewCircuitBreaker(hcl.ExtraOptions{
-		Policy:       hcl.MaxFails,
-		OpenInterval: hcl.ToPointer(1 * time.Second),
-		MaxFails:     hcl.ToPointer(uint64(1)),
+	cb := hcl.NewCircuitBreaker(&hcl.CircuitBreaker{
+		Client: redis.NewClient(&redis.Options{
+			Addr:     "localhost:6379",
+			Password: "", // no password set
+			DB:       0,  // use default DB
+		}),
+		FailureLimit: 3,
+		ResetTimeout: 2 * time.Second,
 	})
-
-	/*
-		cb := hcl.NewCircuitBreaker(hcl.ExtraOptions{
-			Policy:              hcl.MaxConsecutiveFails,
-			MaxConsecutiveFails: hcl.ToPointer(uint64(3)),
-			OpenInterval:        hcl.ToPointer(1 * time.Second),
-		})
-	*/
 
 	r := hcl.New(&hcl.HCL{Client: client, Cb: cb})
 
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 10; i++ {
 		proccess(r)
+		time.Sleep(1)
 	}
 }
 
