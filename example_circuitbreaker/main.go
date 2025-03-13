@@ -44,11 +44,18 @@ func main() {
 		Timeout:   10 * time.Second,
 	}
 	cb := hcl.NewCircuitBreaker(hcl.ExtraOptions{
-		Policy:              hcl.MaxFails,
-		MaxConsecutiveFails: hcl.ToPointer(uint64(3)),
-		OpenInterval:        hcl.ToPointer(1 * time.Second),
-		MaxFails:            hcl.ToPointer(uint64(1)),
+		Policy:       hcl.MaxFails,
+		OpenInterval: hcl.ToPointer(1 * time.Second),
+		MaxFails:     hcl.ToPointer(uint64(1)),
 	})
+
+	/*
+		cb := hcl.NewCircuitBreaker(hcl.ExtraOptions{
+			Policy:              hcl.MaxConsecutiveFails,
+			MaxConsecutiveFails: hcl.ToPointer(uint64(3)),
+			OpenInterval:        hcl.ToPointer(1 * time.Second),
+		})
+	*/
 
 	r := hcl.New(&hcl.HCL{Client: client, Cb: cb})
 
