@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Rahmatulah12/hcl"
+	"github.com/redis/go-redis/v9"
 )
 
 type Response struct {
@@ -42,18 +43,21 @@ func main() {
 		Transport: tr,
 		Timeout:   10 * time.Second,
 	}
-
-	cb := hcl.NewCircuitBreaker(hcl.CircuitBreakerOption{
-		MaxFailures:   10,
-		HalfOpenLimit: 5,
-		ResetTimeout:  10 * time.Second,
+	cbRedis := hcl.NewCircuitBreakerRedis(&hcl.CircuitBreakerRedis{
+		Client: redis.NewClient(&redis.Options{
+			Addr:     "localhost:6379",
+			Password: "", // no password set
+			DB:       0,  // use default DB
+		}),
+		FailureLimit: 3,
+		ResetTimeout: 2 * time.Second,
 	})
 
-	r := hcl.New(&hcl.HCL{Client: client, Cb: cb})
+	r := hcl.New(&hcl.HCL{Client: client, CbRedis: cbRedis})
 
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 10; i++ {
 		proccess(r)
-		time.Sleep(1 * time.Second)
+		time.Sleep(1)
 	}
 }
 

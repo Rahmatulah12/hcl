@@ -1,55 +1,86 @@
 package hcl
 
 import (
-	"context"
-	"errors"
+	"sync"
 	"time"
-
-	"github.com/redis/go-redis/v9"
 )
 
-var errRefuse = errors.New("request refused. the circuit is open")
+const (
+	CLOSED    = "CLOSED"
+	HALF_OPEN = "HALF-OPEN"
+	OPEN      = "OPEN"
+)
 
 type CircuitBreaker struct {
-	Client       *redis.Client
-	FailureLimit int
-	ResetTimeout time.Duration
-	ctx          context.Context
+	mu            sync.Mutex
+	failureCount  int
+	successCount  int
+	state         string
+	lastFailTime  time.Time
+	maxFailures   int
+	resetTimeout  time.Duration
+	halfOpenLimit int
 }
 
-func NewCircuitBreaker(conf *CircuitBreaker) *CircuitBreaker {
+type CircuitBreakerOption struct {
+	MaxFailures   int
+	HalfOpenLimit int
+	ResetTimeout  time.Duration
+}
+
+func NewCircuitBreaker(options CircuitBreakerOption) *CircuitBreaker {
 	return &CircuitBreaker{
-		Client:       conf.Client,
-		FailureLimit: conf.FailureLimit,
-		ResetTimeout: conf.ResetTimeout,
-		ctx:          context.Background(),
+		maxFailures:   options.MaxFailures,
+		halfOpenLimit: options.HalfOpenLimit,
+		resetTimeout:  options.ResetTimeout,
 	}
 }
 
-func (c *CircuitBreaker) recordFailure(key string) {
-	failures, err := c.Client.Incr(c.ctx, key).Result()
+func (cb *CircuitBreaker) allow() bool {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 
-	if err != nil {
-		panic(err.Error())
-	}
+	switch cb.state {
+	case OPEN:
+		if time.Since(cb.lastFailTime) > cb.resetTimeout {
 
-	if failures == 1 {
-		c.Client.Expire(c.ctx, key, c.ResetTimeout) // set timeout at first failure
+			cb.state = HALF_OPEN
+			cb.successCount = 0
+			cb.failureCount = 0
+
+			return true
+		}
+		return false
+	case HALF_OPEN:
+		return cb.successCount < cb.halfOpenLimit
+	default: // CLOSED state
+		return true
 	}
 }
 
-func (c *CircuitBreaker) reset(key string) {
-	c.Client.Del(c.ctx, key)
-}
+// ReportResult updates the circuit breaker state based on success or failure
+func (cb *CircuitBreaker) reportResult(success bool) {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 
-func (c *CircuitBreaker) allowRequest(key string) error {
-	failures, err := c.Client.Get(c.ctx, key).Int()
-	if err != nil && err != redis.Nil {
-		return err
-	}
+	switch success {
+	case false:
+		cb.failureCount++
+		cb.lastFailTime = time.Now()
 
-	if failures >= c.FailureLimit {
-		return errRefuse
+		if cb.state == HALF_OPEN {
+			cb.state = OPEN
+			return
+		}
+
+		if cb.failureCount >= cb.maxFailures {
+			cb.state = OPEN
+			return
+		}
+	default:
+		cb.successCount++
+		if cb.state == HALF_OPEN && cb.successCount >= cb.halfOpenLimit {
+			cb.state = CLOSED
+		}
 	}
-	return nil
 }

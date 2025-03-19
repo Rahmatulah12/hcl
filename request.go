@@ -18,18 +18,21 @@ const (
 	msg_failed_body    = "something went wrong, please set body request"
 	example            = "http://example.com"
 	msg_empty_url      = "something went wrong, please set uri request"
+	content_type       = "Content-Type"
 )
 
 type Request struct {
 	request *http.Request
 	client  *http.Client
-	cb      *CircuitBreaker
+	Cb      *CircuitBreaker
+	cbRedis *CircuitBreakerRedis
 	cbKey   string
 }
 
 type HCL struct {
-	Client *http.Client
-	Cb     *CircuitBreaker
+	Client  *http.Client
+	Cb      *CircuitBreaker
+	CbRedis *CircuitBreakerRedis
 }
 
 func New(hcl *HCL) *Request {
@@ -38,20 +41,31 @@ func New(hcl *HCL) *Request {
 	if err != nil {
 		panic(err.Error())
 	}
+
 	var cb *CircuitBreaker
 	if hcl.Cb != nil {
 		cb = &CircuitBreaker{
-			ctx:          hcl.Cb.ctx,
-			Client:       hcl.Cb.Client,
-			FailureLimit: hcl.Cb.FailureLimit,
-			ResetTimeout: hcl.Cb.ResetTimeout,
+			failureCount:  hcl.Cb.failureCount,
+			resetTimeout:  hcl.Cb.resetTimeout,
+			halfOpenLimit: hcl.Cb.halfOpenLimit,
+		}
+	}
+
+	var cbRedis *CircuitBreakerRedis
+	if hcl.CbRedis != nil {
+		cbRedis = &CircuitBreakerRedis{
+			ctx:          hcl.CbRedis.ctx,
+			Client:       hcl.CbRedis.Client,
+			FailureLimit: hcl.CbRedis.FailureLimit,
+			ResetTimeout: hcl.CbRedis.ResetTimeout,
 		}
 	}
 
 	return &Request{
 		request: req,
 		client:  hcl.Client,
-		cb:      cb,
+		Cb:      cb,
+		cbRedis: cbRedis,
 	}
 }
 
@@ -132,7 +146,7 @@ func (r *Request) SetJsonPayload(body interface{}) *Request {
 	}
 
 	r.request.Body = io.NopCloser(bytes.NewBuffer(b))
-	r.request.Header.Set("Content-Type", "application/json")
+	r.request.Header.Set(content_type, "application/json")
 
 	return r
 }
@@ -148,7 +162,7 @@ func (r *Request) SetXMLPayload(body interface{}) *Request {
 	}
 
 	r.request.Body = io.NopCloser(bytes.NewBuffer(b))
-	r.request.Header.Set("Content-Type", "application/xml")
+	r.request.Header.Set(content_type, "application/xml")
 
 	return r
 }
@@ -196,7 +210,7 @@ func (r *Request) SetFormData(data map[string]interface{}) *Request {
 	writer.Close()
 
 	r.request.Body = io.NopCloser(&body)
-	r.request.Header.Set("Content-Type", writer.FormDataContentType())
+	r.request.Header.Set(content_type, writer.FormDataContentType())
 
 	return r
 }
@@ -219,7 +233,7 @@ func (r *Request) SetFormURLEncoded(data map[string]string) *Request {
 	encodedForm := formData.Encode()
 
 	r.request.Body = io.NopCloser(bytes.NewBufferString(encodedForm))
-	r.request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.request.Header.Set(content_type, "application/x-www-form-urlencoded")
 
 	return r
 }
@@ -235,47 +249,92 @@ func (r *Request) SetCircuitBreaker(key string) *Request {
 
 func (r *Request) Get() (*Response, error) {
 	r.request.Method = http.MethodGet
-	if r.cb == nil {
+
+	if r.Cb != nil && r.cbRedis != nil { // if both cb and cbRedis are set, use not with cb
 		return r.execute()
 	}
 
-	return r.executeWithCb()
+	if r.Cb != nil {
+		return r.executeWithCb()
+	}
+
+	if r.cbRedis != nil {
+		return r.executeWithCbRedis()
+	}
+
+	return r.execute()
 }
 
 func (r *Request) Post() (*Response, error) {
 	r.request.Method = http.MethodPost
-	if r.cb == nil {
+
+	if r.Cb != nil && r.cbRedis != nil { // if both cb and cbRedis are set, use not with cb
 		return r.execute()
 	}
 
-	return r.executeWithCb()
+	if r.Cb != nil {
+		return r.executeWithCb()
+	}
+
+	if r.cbRedis != nil {
+		return r.executeWithCbRedis()
+	}
+
+	return r.execute()
 }
 
 func (r *Request) Patch() (*Response, error) {
 	r.request.Method = http.MethodPatch
-	if r.cb == nil {
+
+	if r.Cb != nil && r.cbRedis != nil { // if both cb and cbRedis are set, use not with cb
 		return r.execute()
 	}
 
-	return r.executeWithCb()
+	if r.Cb != nil {
+		return r.executeWithCb()
+	}
+
+	if r.cbRedis != nil {
+		return r.executeWithCbRedis()
+	}
+
+	return r.execute()
 }
 
 func (r *Request) Put() (*Response, error) {
 	r.request.Method = http.MethodPut
-	if r.cb == nil {
+
+	if r.Cb != nil && r.cbRedis != nil { // if both cb and cbRedis are set, use not with cb
 		return r.execute()
 	}
 
-	return r.executeWithCb()
+	if r.Cb != nil {
+		return r.executeWithCb()
+	}
+
+	if r.cbRedis != nil {
+		return r.executeWithCbRedis()
+	}
+
+	return r.execute()
 }
 
 func (r *Request) Delete() (*Response, error) {
 	r.request.Method = http.MethodDelete
-	if r.cb == nil {
+
+	if r.Cb != nil && r.cbRedis != nil { // if both cb and cbRedis are set, use not with cb
 		return r.execute()
 	}
 
-	return r.executeWithCb()
+	if r.Cb != nil {
+		return r.executeWithCb()
+	}
+
+	if r.cbRedis != nil {
+		return r.executeWithCbRedis()
+	}
+
+	return r.execute()
 }
 
 func (r *Request) execute() (*Response, error) {
@@ -293,11 +352,34 @@ func (r *Request) execute() (*Response, error) {
 }
 
 func (r *Request) executeWithCb() (*Response, error) {
+	if !r.Cb.allow() {
+		return nil, errRefuse
+	}
+	resp, err := r.client.Do(r.request)
+
+	if err != nil {
+		return (*Response)(resp), err
+	}
+
+	if resp.StatusCode >= http.StatusBadRequest {
+
+		if resp.StatusCode >= http.StatusInternalServerError {
+			r.Cb.reportResult(false)
+		}
+
+		return (*Response)(resp), fmt.Errorf("error, response from client: %s", resp.Status)
+	}
+
+	r.Cb.reportResult(true)
+	return (*Response)(resp), nil
+}
+
+func (r *Request) executeWithCbRedis() (*Response, error) {
 	if r.cbKey == "" {
 		return nil, fmt.Errorf("circuit breaker key cannot be empty")
 	}
 
-	if err := r.cb.allowRequest(r.cbKey); err != nil {
+	if err := r.cbRedis.allowRequest(r.cbKey); err != nil {
 		return nil, err
 	}
 
@@ -310,14 +392,14 @@ func (r *Request) executeWithCb() (*Response, error) {
 	if resp.StatusCode >= http.StatusBadRequest {
 
 		if resp.StatusCode >= http.StatusInternalServerError {
-			r.cb.recordFailure(r.cbKey)
+			r.cbRedis.recordFailure(r.cbKey)
 		}
 
 		return (*Response)(resp), fmt.Errorf("error, response from client: %s", resp.Status)
 	}
 
 	// when success, reset counter circuit breaker
-	r.cb.reset(r.cbKey)
+	r.cbRedis.reset(r.cbKey)
 
 	return (*Response)(resp), nil
 }
