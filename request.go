@@ -27,12 +27,14 @@ type Request struct {
 	Cb      *CircuitBreaker
 	cbRedis *CircuitBreakerRedis
 	cbKey   string
+	log     *Log
 }
 
 type HCL struct {
-	Client  *http.Client
-	Cb      *CircuitBreaker
-	CbRedis *CircuitBreakerRedis
+	Client    *http.Client
+	Cb        *CircuitBreaker
+	CbRedis   *CircuitBreakerRedis
+	EnableLog bool
 }
 
 func New(hcl *HCL) *Request {
@@ -61,11 +63,17 @@ func New(hcl *HCL) *Request {
 		}
 	}
 
+	var log *Log
+	if hcl.EnableLog {
+		log = NewLog()
+	}
+
 	return &Request{
 		request: req,
 		client:  hcl.Client,
 		Cb:      cb,
 		cbRedis: cbRedis,
+		log:     log,
 	}
 }
 
@@ -338,36 +346,52 @@ func (r *Request) Delete() (*Response, error) {
 }
 
 func (r *Request) execute() (*Response, error) {
+	r.log.initiate()
+	r.log.setRequest(r.request)
+	defer r.log.writeLog()
+
 	resp, err := r.client.Do(r.request)
+	r.log.setResponse(resp)
 
 	if err != nil {
+		r.log.setError(err)
 		return (*Response)(resp), err
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {
-		return (*Response)(resp), fmt.Errorf("error, response from client: %s", resp.Status)
+		err = fmt.Errorf("error, response from client: %s", resp.Status)
+		r.log.setError(err)
+		return (*Response)(resp), err
 	}
 
 	return (*Response)(resp), nil
 }
 
 func (r *Request) executeWithCb() (*Response, error) {
+	r.log.initiate()
+	r.log.setRequest(r.request)
+	defer r.log.writeLog()
 	if !r.Cb.allow() {
+		r.log.setError(errRefuse)
 		return nil, errRefuse
 	}
+
 	resp, err := r.client.Do(r.request)
+	r.log.setResponse(resp)
 
 	if err != nil {
+		r.log.setError(err)
 		return (*Response)(resp), err
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {
-
+		err = fmt.Errorf("error, response from client: %s", resp.Status)
 		if resp.StatusCode >= http.StatusInternalServerError {
 			r.Cb.reportResult(false)
 		}
+		r.log.setError(err)
 
-		return (*Response)(resp), fmt.Errorf("error, response from client: %s", resp.Status)
+		return (*Response)(resp), err
 	}
 
 	r.Cb.reportResult(true)
@@ -375,27 +399,36 @@ func (r *Request) executeWithCb() (*Response, error) {
 }
 
 func (r *Request) executeWithCbRedis() (*Response, error) {
+	r.log.initiate()
+	r.log.setRequest(r.request)
+	defer r.log.writeLog()
+
 	if r.cbKey == "" {
-		return nil, fmt.Errorf("circuit breaker key cannot be empty")
+		err := fmt.Errorf("circuit breaker key cannot be empty")
+		r.log.setError(err)
+		return nil, err
 	}
 
 	if err := r.cbRedis.allowRequest(r.cbKey); err != nil {
+		r.log.setError(err)
 		return nil, err
 	}
 
 	resp, err := r.client.Do(r.request)
+	r.log.setResponse(resp)
 
 	if err != nil {
 		return (*Response)(resp), err
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {
-
+		err := fmt.Errorf("error, response from client: %s", resp.Status)
 		if resp.StatusCode >= http.StatusInternalServerError {
 			r.cbRedis.recordFailure(r.cbKey)
 		}
+		r.log.setError(err)
 
-		return (*Response)(resp), fmt.Errorf("error, response from client: %s", resp.Status)
+		return (*Response)(resp), err
 	}
 
 	// when success, reset counter circuit breaker

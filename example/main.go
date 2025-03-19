@@ -43,9 +43,13 @@ func main() {
 		Timeout:   10 * time.Second,
 	}
 
-	r := hcl.New(&hcl.HCL{Client: client})
+	r := hcl.New(&hcl.HCL{
+		Client:    client,
+		EnableLog: true,
+	})
 
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 500; i++ {
+		time.Sleep(500 * time.Millisecond)
 		proccess(r)
 	}
 }
@@ -59,10 +63,8 @@ func proccess(r *hcl.Request) {
 		Get()
 
 	if err != nil {
-		fmt.Println(err.Error())
 		return
 	}
-
 	defer resp.Body.Close()
 
 	// byte response example
@@ -75,7 +77,6 @@ func proccess(r *hcl.Request) {
 	s := &Response{}
 	err = resp.Result(hcl.JSON, s)
 	if err != nil {
-		fmt.Println(err.Error())
 		return
 	}
 	fmt.Println(s)
