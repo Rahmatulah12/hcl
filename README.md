@@ -232,7 +232,7 @@ func main() {
 		Transport: tr,
 		Timeout:   10 * time.Second,
 	}
-	cb := hcl.NewCircuitBreaker(&hcl.CircuitBreaker{
+	cbRedis := hcl.NewCircuitBreakerRedis(&hcl.CircuitBreakerRedis{
 		Client: redis.NewClient(&redis.Options{
 			Addr:     "localhost:6379",
 			Password: "", // no password set
@@ -242,7 +242,7 @@ func main() {
 		ResetTimeout: 2 * time.Second,
 	})
 
-	r := hcl.New(&hcl.HCL{Client: client, Cb: cb})
+	r := hcl.New(&hcl.HCL{Client: client, CbRedis: cbRedis})
 
 	for i := 0; i < 10; i++ {
 		proccess(r)
@@ -255,6 +255,7 @@ func proccess(r *hcl.Request) {
 	resp, err := r.SetUrl("http://localhost:3000/networkprofile/1122334455").
 		SetHeaders(map[string]string{"Content-Type": "application/json"}).
 		SetQueryParams(map[string]string{"a": "b", "c": "d"}).
+		SetCircuitBreakerKey("test_a").
 		SetHeader("cicak", "cicak").
 		Get()
 
@@ -264,6 +265,13 @@ func proccess(r *hcl.Request) {
 	}
 
 	defer resp.Body.Close()
+
+	// byte response example
+	// b, err := resp.ByteResult()
+	// if err != nil {
+	// 	panic(err.Error())
+	// }
+	// fmt.Println(string(b))
 
 	s := &Response{}
 	err = resp.Result(hcl.JSON, s)

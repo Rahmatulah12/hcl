@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -13,7 +14,15 @@ import (
 	"strconv"
 )
 
+type RequestMethod string
+
 const (
+	MethodGet    RequestMethod = http.MethodGet
+	MethodPost   RequestMethod = http.MethodPost
+	MethodPatch  RequestMethod = http.MethodPatch
+	MethodPut    RequestMethod = http.MethodPut
+	MethodDelete RequestMethod = http.MethodDelete
+
 	msg_failed_key_val = "something went wrong, please set key and value request"
 	msg_failed_body    = "something went wrong, please set body request"
 	example            = "http://example.com"
@@ -246,7 +255,7 @@ func (r *Request) SetFormURLEncoded(data map[string]string) *Request {
 	return r
 }
 
-func (r *Request) SetCircuitBreaker(key string) *Request {
+func (r *Request) SetCircuitBreakerKey(key string) *Request {
 	if key == "" {
 		panic("key cannot be empty")
 	}
@@ -255,157 +264,84 @@ func (r *Request) SetCircuitBreaker(key string) *Request {
 	return r
 }
 
+// sendRequest handles all HTTP methods using a single function
+func (r *Request) sendRequest(method RequestMethod) (*Response, error) {
+	r.request.Method = string(method)
+	return r.chooseExecutionStrategy()
+}
+
+// Get sends a GET request
 func (r *Request) Get() (*Response, error) {
-	r.request.Method = http.MethodGet
-
-	if r.Cb != nil && r.cbRedis != nil { // if both cb and cbRedis are set, use not with cb
-		return r.execute()
-	}
-
-	if r.Cb != nil {
-		return r.executeWithCb()
-	}
-
-	if r.cbRedis != nil {
-		return r.executeWithCbRedis()
-	}
-
-	return r.execute()
+	return r.sendRequest(MethodGet)
 }
 
+// Post sends a POST request
 func (r *Request) Post() (*Response, error) {
-	r.request.Method = http.MethodPost
-
-	if r.Cb != nil && r.cbRedis != nil { // if both cb and cbRedis are set, use not with cb
-		return r.execute()
-	}
-
-	if r.Cb != nil {
-		return r.executeWithCb()
-	}
-
-	if r.cbRedis != nil {
-		return r.executeWithCbRedis()
-	}
-
-	return r.execute()
+	return r.sendRequest(MethodPost)
 }
 
+// Patch sends a PATCH request
 func (r *Request) Patch() (*Response, error) {
-	r.request.Method = http.MethodPatch
-
-	if r.Cb != nil && r.cbRedis != nil { // if both cb and cbRedis are set, use not with cb
-		return r.execute()
-	}
-
-	if r.Cb != nil {
-		return r.executeWithCb()
-	}
-
-	if r.cbRedis != nil {
-		return r.executeWithCbRedis()
-	}
-
-	return r.execute()
+	return r.sendRequest(MethodPatch)
 }
 
+// Put sends a PUT request
 func (r *Request) Put() (*Response, error) {
-	r.request.Method = http.MethodPut
-
-	if r.Cb != nil && r.cbRedis != nil { // if both cb and cbRedis are set, use not with cb
-		return r.execute()
-	}
-
-	if r.Cb != nil {
-		return r.executeWithCb()
-	}
-
-	if r.cbRedis != nil {
-		return r.executeWithCbRedis()
-	}
-
-	return r.execute()
+	return r.sendRequest(MethodPut)
 }
 
+// Delete sends a DELETE request
 func (r *Request) Delete() (*Response, error) {
-	r.request.Method = http.MethodDelete
+	return r.sendRequest(MethodDelete)
+}
 
-	if r.Cb != nil && r.cbRedis != nil { // if both cb and cbRedis are set, use not with cb
+// chooseExecutionStrategy determines which execution method to use based on circuit breaker configuration
+func (r *Request) chooseExecutionStrategy() (*Response, error) {
+	if r.Cb != nil && r.cbRedis != nil {
 		return r.execute()
 	}
-
 	if r.Cb != nil {
 		return r.executeWithCb()
 	}
-
 	if r.cbRedis != nil {
 		return r.executeWithCbRedis()
 	}
-
 	return r.execute()
 }
 
 func (r *Request) execute() (*Response, error) {
-	r.log.initiate()
-	r.log.setRequest(r.request)
-	defer r.log.writeLog()
-
-	resp, err := r.client.Do(r.request)
-	r.log.setResponse(resp)
-
-	if err != nil {
-		r.log.setError(err)
-		return (*Response)(resp), err
+	if err := r.validateURL(); err != nil {
+		return nil, err
 	}
 
-	if resp.StatusCode >= http.StatusBadRequest {
-		err = fmt.Errorf("error, response from client: %s", resp.Status)
-		r.log.setError(err)
-		return (*Response)(resp), err
-	}
-
-	return (*Response)(resp), nil
+	return r.performRequest(nil)
 }
 
 func (r *Request) executeWithCb() (*Response, error) {
-	r.log.initiate()
-	r.log.setRequest(r.request)
-	defer r.log.writeLog()
+	if err := r.validateURL(); err != nil {
+		return nil, err
+	}
+
 	if !r.Cb.allow() {
 		r.log.setError(errRefuse)
 		return nil, errRefuse
 	}
 
-	resp, err := r.client.Do(r.request)
-	r.log.setResponse(resp)
-
-	if err != nil {
-		r.log.setError(err)
-		return (*Response)(resp), err
-	}
-
-	if resp.StatusCode >= http.StatusBadRequest {
-		err = fmt.Errorf("error, response from client: %s", resp.Status)
-		if resp.StatusCode >= http.StatusInternalServerError {
+	return r.performRequest(func(resp *http.Response, err error) {
+		if err == nil && resp.StatusCode < http.StatusInternalServerError {
+			r.Cb.reportResult(true)
+		} else if resp != nil && resp.StatusCode >= http.StatusInternalServerError {
 			r.Cb.reportResult(false)
 		}
-		r.log.setError(err)
-
-		return (*Response)(resp), err
-	}
-
-	r.Cb.reportResult(true)
-	return (*Response)(resp), nil
+	})
 }
 
 func (r *Request) executeWithCbRedis() (*Response, error) {
-	r.log.initiate()
-	r.log.setRequest(r.request)
-	defer r.log.writeLog()
+	if err := r.validateURL(); err != nil {
+		return nil, err
+	}
 
-	if r.cbKey == "" {
-		err := fmt.Errorf("circuit breaker key cannot be empty")
-		r.log.setError(err)
+	if err := r.validateRedisKey(); err != nil {
 		return nil, err
 	}
 
@@ -414,25 +350,54 @@ func (r *Request) executeWithCbRedis() (*Response, error) {
 		return nil, err
 	}
 
+	return r.performRequest(func(resp *http.Response, err error) {
+		if err == nil && resp.StatusCode < http.StatusBadRequest {
+			r.cbRedis.reset(r.cbKey)
+		} else if resp != nil && resp.StatusCode >= http.StatusInternalServerError {
+			r.cbRedis.recordFailure(r.cbKey)
+		}
+	})
+}
+
+func (r *Request) validateURL() error {
+	if r.request.URL.String() == "" {
+		return errors.New(msg_empty_url)
+	}
+	return nil
+}
+
+func (r *Request) validateRedisKey() error {
+	if r.cbKey == "" {
+		err := fmt.Errorf("circuit breaker key cannot be empty")
+		r.log.setError(err)
+		return err
+	}
+	return nil
+}
+
+// performRequest handles the common request execution logic
+func (r *Request) performRequest(callback func(*http.Response, error)) (*Response, error) {
+	r.log.initiate()
+	r.log.setRequest(r.request)
+	defer r.log.writeLog()
+
 	resp, err := r.client.Do(r.request)
 	r.log.setResponse(resp)
 
+	if callback != nil {
+		callback(resp, err)
+	}
+
 	if err != nil {
+		r.log.setError(err)
 		return (*Response)(resp), err
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {
-		err := fmt.Errorf("error, response from client: %s", resp.Status)
-		if resp.StatusCode >= http.StatusInternalServerError {
-			r.cbRedis.recordFailure(r.cbKey)
-		}
+		err = fmt.Errorf("error, response from client: %s", resp.Status)
 		r.log.setError(err)
-
 		return (*Response)(resp), err
 	}
-
-	// when success, reset counter circuit breaker
-	r.cbRedis.reset(r.cbKey)
 
 	return (*Response)(resp), nil
 }

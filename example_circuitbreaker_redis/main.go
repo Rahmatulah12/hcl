@@ -66,6 +66,7 @@ func proccess(r *hcl.Request) {
 	resp, err := r.SetUrl("http://localhost:3000/networkprofile/1122334455").
 		SetHeaders(map[string]string{"Content-Type": "application/json"}).
 		SetQueryParams(map[string]string{"a": "b", "c": "d"}).
+		SetCircuitBreakerKey("test_a").
 		SetHeader("cicak", "cicak").
 		Get()
 
