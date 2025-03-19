@@ -19,8 +19,8 @@ type log struct {
 	Level   any      `json:"level"`
 	Latency any      `json:"latency"`
 	Error   any      `json:"error"`
-	Req     request  `json:"request"`
-	Resp    response `json:"response"`
+	Req     request  `json:"request,omitempty"`
+	Resp    response `json:"response,omitempty"`
 }
 
 type request struct {
