@@ -26,15 +26,7 @@ func convertInterfaceToJson(data interface{}) string {
 
 func maskString(input string) string {
 	length := len(input)
-	if length <= 5 {
-		return strings.Repeat("*", length)
-	}
-
-	// calculate center characters
-	maskStart := (length - 4) / 2
-	maskEnd := maskStart + 4
-
-	return input[:maskStart] + strings.Repeat("*", 4) + input[maskEnd:]
+	return strings.Repeat("*", length)
 }
 
 func shouldMask(key string, maskFields []string) bool {
