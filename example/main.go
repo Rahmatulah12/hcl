@@ -48,10 +48,7 @@ func main() {
 		EnableLog: true,
 	})
 
-	for i := 0; i < 500; i++ {
-		time.Sleep(500 * time.Millisecond)
-		proccess(r)
-	}
+	proccess(r)
 }
 
 func proccess(r *hcl.Request) {
@@ -60,6 +57,10 @@ func proccess(r *hcl.Request) {
 		SetHeaders(map[string]string{"Content-Type": "application/json"}).
 		SetQueryParams(map[string]string{"a": "b", "c": "d"}).
 		SetHeader("cicak", "cicak").
+		SetHeader("X-API-KEY", "abcdefghijklmnopqrstu").
+		SetHeader("API_KEY", "abcdefghijklmnopqrstu").
+		SetMaskedFields([]string{"Cicak", "x-api-key"}).
+		SetMaskedFields([]string{"api_key"}).
 		Get()
 
 	if err != nil {

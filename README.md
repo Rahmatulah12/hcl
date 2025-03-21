@@ -184,6 +184,11 @@ func proccess(r *hcl.Request) {
 {"time":"2025-03-19T21:54:50+07:00","level":"error","latency":"1 ms","error":"Get \"http://localhost:3000/networkprofile/1122334455?a=b\u0026c=d\": dial tcp 127.0.0.1:3000: connect: connection refused","request":{"host":"localhost:3000","path":"/networkprofile/1122334455","query":{"a":["b"],"c":["d"]},"header":{"Cicak":["cicak"],"Content-Type":["application/json"]},"method":"GET","body":""},"response":{"statusCode":null,"body":null}}
 ```
 
+### It's log, with masking
+```json
+{"error":"Get \"http://localhost:3000/networkprofile/1122334455?a=b\u0026c=d\": dial tcp 127.0.0.1:3000: connect: connection refused","latency":"0 ms","level":"error","request":{"body":"","header":{"Api_key":["*********************"],"Cicak":["*****"],"Content-Type":["application/json"],"X-Api-Key":["*********************"]},"host":"localhost:3000","method":"GET","path":"/networkprofile/1122334455","query":{"a":["b"],"c":["d"]}},"response":{},"time":"2025-03-21T22:12:23+07:00"}
+```
+
 ### Example Circuit Breaker with Redis
 
 ```go
