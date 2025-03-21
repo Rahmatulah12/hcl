@@ -264,6 +264,11 @@ func (r *Request) SetCircuitBreakerKey(key string) *Request {
 	return r
 }
 
+func (r *Request) SetMaskedFields(fields []string) *Request {
+	r.log.maskedFields = append(r.log.maskedFields, fields...)
+	return r
+}
+
 // sendRequest handles all HTTP methods using a single function
 func (r *Request) sendRequest(method RequestMethod) (*Response, error) {
 	r.request.Method = string(method)

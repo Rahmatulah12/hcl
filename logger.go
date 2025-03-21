@@ -33,13 +33,14 @@ type request struct {
 }
 
 type response struct {
-	StatusCode any `json:"statusCode"`
-	Body       any `json:"body"`
+	StatusCode any `json:"statusCode,omitempty"`
+	Body       any `json:"body,omitempty"`
 }
 
 type Log struct {
-	start time.Time
-	l     log
+	start        time.Time
+	l            log
+	maskedFields []string
 }
 
 func NewLog() *Log {
@@ -110,5 +111,16 @@ func (lg *Log) writeLog() {
 	// latency
 	lg.l.Latency = fmt.Sprintf("%d ms", latency)
 	// write log
-	fmt.Println(convertInterfaceToJson(lg.l))
+	dataLog := convertInterfaceToJson(lg.l)
+	var dtLog string
+
+	if len(lg.maskedFields) > 0 {
+		dtLog = maskJSON(dataLog, lg.maskedFields)
+	}
+
+	if dtLog != "" {
+		dataLog = dtLog
+	}
+
+	fmt.Println(dataLog)
 }
