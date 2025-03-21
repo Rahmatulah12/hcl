@@ -24,12 +24,14 @@ type log struct {
 }
 
 type request struct {
-	Host   any `json:"host"`
-	Path   any `json:"path"`
-	Query  any `json:"query"`
-	Header any `json:"header"`
-	Method any `json:"method"`
-	Body   any `json:"body"`
+	Scheme any `json:"scheme,omitempty"`
+	Host   any `json:"host,omitempty"`
+	Port   any `json:"port,omitempty"`
+	Path   any `json:"path,omitempty"`
+	Query  any `json:"query,omitempty"`
+	Header any `json:"header,omitempty"`
+	Method any `json:"method,omitempty"`
+	Body   any `json:"body,omitempty"`
 }
 
 type response struct {
@@ -62,7 +64,10 @@ func (lg *Log) setRequest(req *http.Request) {
 		return
 	}
 	// request
-	lg.l.Req.Host = req.URL.Host
+	host, port := parseHostPort(req.URL.Host)
+	lg.l.Req.Scheme = req.URL.Scheme
+	lg.l.Req.Host = host
+	lg.l.Req.Port = port
 	lg.l.Req.Path = req.URL.Path
 	lg.l.Req.Query = req.URL.Query()
 	lg.l.Req.Header = req.Header

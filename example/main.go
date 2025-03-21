@@ -9,26 +9,14 @@ import (
 	"github.com/Rahmatulah12/hcl"
 )
 
-type Response struct {
-	Transaction    Transaction    `json:"transaction"`
-	Service        Service        `json:"service"`
-	NetworkProfile NetworkProfile `json:"network_profile"`
-}
-
-type Transaction struct {
-	TransactionID string `json:"transaction_id"`
-	Channel       string `json:"channel"`
-	StatusCode    string `json:"status_code"`
-	StatusDesc    string `json:"status_desc"`
-}
-
-type Service struct {
-	ServiceID string `json:"service_id"`
-}
-
-type NetworkProfile struct {
-	ProductID string `json:"product_id"`
-	ScpID     string `json:"scp_id"`
+type ResponseProfile struct {
+	Profiles struct {
+		Balance      string `json:"balance"`
+		CustomerName string `json:"customer_name"`
+		CustomerType string `json:"customer_type"`
+		CustType     string `json:"custtype"`
+		Location     string `json:"location"`
+	} `json:"profiles"`
 }
 
 func main() {
@@ -75,7 +63,7 @@ func proccess(r *hcl.Request) {
 	// }
 	// fmt.Println(string(b))
 
-	s := &Response{}
+	s := &ResponseProfile{}
 	err = resp.Result(hcl.JSON, s)
 	if err != nil {
 		return
