@@ -2,6 +2,7 @@ package hcl
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -121,6 +122,7 @@ func (lg *Log) writeLog() {
 
 	if len(lg.maskedFields) > 0 {
 		dtLog = maskJSON(dataLog, lg.maskedFields)
+		dtLog = lg.mapperLog(dtLog)
 	}
 
 	if dtLog != "" {
@@ -128,4 +130,14 @@ func (lg *Log) writeLog() {
 	}
 
 	fmt.Println(dataLog)
+}
+
+func (lg *Log) mapperLog(jsonStr string) string {
+	var l *log
+	err := json.Unmarshal([]byte(jsonStr), &l)
+	if err != nil {
+		return ""
+	}
+
+	return convertInterfaceToJson(l)
 }

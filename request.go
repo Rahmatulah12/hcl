@@ -17,17 +17,22 @@ import (
 type RequestMethod string
 
 const (
-	MethodGet    RequestMethod = http.MethodGet
-	MethodPost   RequestMethod = http.MethodPost
-	MethodPatch  RequestMethod = http.MethodPatch
-	MethodPut    RequestMethod = http.MethodPut
-	MethodDelete RequestMethod = http.MethodDelete
+	GET    RequestMethod = http.MethodGet
+	POST   RequestMethod = http.MethodPost
+	PATCH  RequestMethod = http.MethodPatch
+	PUT    RequestMethod = http.MethodPut
+	DELETE RequestMethod = http.MethodDelete
 
-	msg_failed_key_val = "something went wrong, please set key and value request"
-	msg_failed_body    = "something went wrong, please set body request"
-	example            = "http://example.com"
-	msg_empty_url      = "something went wrong, please set uri request"
-	content_type       = "Content-Type"
+	msgFailedKeyVal = "something went wrong, please set key and value request"
+	msgFailedBody   = "something went wrong, please set body request"
+	msgEmptyUrl     = "something went wrong, please set uri request"
+)
+
+const (
+	contentType         = "Content-Type"
+	contentTypeJSON     = "application/json"
+	contentTypeXML      = "application/xml"
+	contentTypeFormData = "application/x-www-form-urlencoded"
 )
 
 type Request struct {
@@ -47,48 +52,55 @@ type HCL struct {
 }
 
 func New(hcl *HCL) *Request {
-	req, err := http.NewRequest(http.MethodGet, "", nil)
+	req, err := http.NewRequest("", "", nil)
 
 	if err != nil {
-		panic(err.Error())
-	}
-
-	var cb *CircuitBreaker
-	if hcl.Cb != nil {
-		cb = &CircuitBreaker{
-			failureCount:  hcl.Cb.failureCount,
-			resetTimeout:  hcl.Cb.resetTimeout,
-			halfOpenLimit: hcl.Cb.halfOpenLimit,
-		}
-	}
-
-	var cbRedis *CircuitBreakerRedis
-	if hcl.CbRedis != nil {
-		cbRedis = &CircuitBreakerRedis{
-			ctx:          hcl.CbRedis.ctx,
-			Client:       hcl.CbRedis.Client,
-			FailureLimit: hcl.CbRedis.FailureLimit,
-			ResetTimeout: hcl.CbRedis.ResetTimeout,
-		}
-	}
-
-	var log *Log
-	if hcl.EnableLog {
-		log = NewLog()
+		panic(fmt.Errorf("failed to initialize request: %w", err).Error())
 	}
 
 	return &Request{
 		request: req,
 		client:  hcl.Client,
-		Cb:      cb,
-		cbRedis: cbRedis,
-		log:     log,
+		Cb:      cloneCircuitBreaker(hcl.Cb),
+		cbRedis: cloneCircuitBreakerRedis(hcl.CbRedis),
+		log:     initializeLog(hcl.EnableLog),
 	}
+}
+
+// Helper functions for New
+func cloneCircuitBreaker(cb *CircuitBreaker) *CircuitBreaker {
+	if cb == nil {
+		return nil
+	}
+	return &CircuitBreaker{
+		failureCount:  cb.failureCount,
+		resetTimeout:  cb.resetTimeout,
+		halfOpenLimit: cb.halfOpenLimit,
+	}
+}
+
+func cloneCircuitBreakerRedis(cbRedis *CircuitBreakerRedis) *CircuitBreakerRedis {
+	if cbRedis == nil {
+		return nil
+	}
+	return &CircuitBreakerRedis{
+		ctx:          cbRedis.ctx,
+		Client:       cbRedis.Client,
+		FailureLimit: cbRedis.FailureLimit,
+		ResetTimeout: cbRedis.ResetTimeout,
+	}
+}
+
+func initializeLog(enableLog bool) *Log {
+	if enableLog {
+		return NewLog()
+	}
+	return nil
 }
 
 func (r *Request) SetUrl(uri string) *Request {
 	if uri == "" {
-		panic(msg_empty_url)
+		panic(msgEmptyUrl)
 	}
 
 	parsedUrl, err := url.Parse(uri)
@@ -103,7 +115,7 @@ func (r *Request) SetUrl(uri string) *Request {
 
 func (r *Request) SetQueryParam(key, val string) *Request {
 	if key == "" || val == "" {
-		panic(msg_failed_key_val)
+		panic(msgFailedKeyVal)
 	}
 
 	q := r.request.URL.Query()
@@ -129,7 +141,7 @@ func (r *Request) SetQueryParams(val map[string]string) *Request {
 
 func (r *Request) SetHeader(key, val string) *Request {
 	if key == "" || val == "" {
-		panic(msg_failed_key_val)
+		panic(msgFailedKeyVal)
 	}
 
 	r.request.Header.Set(key, val)
@@ -154,7 +166,7 @@ func (r *Request) SetHeaders(val map[string]string) *Request {
 
 func (r *Request) SetJsonPayload(body interface{}) *Request {
 	if body == nil {
-		panic(msg_failed_body)
+		panic(msgFailedBody)
 	}
 
 	b, err := json.Marshal(body)
@@ -162,15 +174,15 @@ func (r *Request) SetJsonPayload(body interface{}) *Request {
 		panic(err.Error())
 	}
 
+	r.request.Header.Set(contentType, contentTypeJSON)
 	r.request.Body = io.NopCloser(bytes.NewBuffer(b))
-	r.request.Header.Set(content_type, "application/json")
 
 	return r
 }
 
 func (r *Request) SetXMLPayload(body interface{}) *Request {
 	if body == nil {
-		panic(msg_failed_body)
+		panic(msgFailedBody)
 	}
 
 	b, err := xml.Marshal(body)
@@ -178,8 +190,8 @@ func (r *Request) SetXMLPayload(body interface{}) *Request {
 		panic(err.Error())
 	}
 
+	r.request.Header.Set(contentType, contentTypeXML)
 	r.request.Body = io.NopCloser(bytes.NewBuffer(b))
-	r.request.Header.Set(content_type, "application/xml")
 
 	return r
 }
@@ -226,15 +238,15 @@ func (r *Request) SetFormData(data map[string]interface{}) *Request {
 
 	writer.Close()
 
+	r.request.Header.Set(contentType, writer.FormDataContentType())
 	r.request.Body = io.NopCloser(&body)
-	r.request.Header.Set(content_type, writer.FormDataContentType())
 
 	return r
 }
 
 func (r *Request) SetFormURLEncoded(data map[string]string) *Request {
 	if data == nil {
-		panic(msg_failed_body)
+		panic(msgFailedBody)
 	}
 
 	formData := url.Values{}
@@ -250,7 +262,7 @@ func (r *Request) SetFormURLEncoded(data map[string]string) *Request {
 	encodedForm := formData.Encode()
 
 	r.request.Body = io.NopCloser(bytes.NewBufferString(encodedForm))
-	r.request.Header.Set(content_type, "application/x-www-form-urlencoded")
+	r.request.Header.Set(contentType, "application/x-www-form-urlencoded")
 
 	return r
 }
@@ -277,27 +289,27 @@ func (r *Request) sendRequest(method RequestMethod) (*Response, error) {
 
 // Get sends a GET request
 func (r *Request) Get() (*Response, error) {
-	return r.sendRequest(MethodGet)
+	return r.sendRequest(GET)
 }
 
 // Post sends a POST request
 func (r *Request) Post() (*Response, error) {
-	return r.sendRequest(MethodPost)
+	return r.sendRequest(POST)
 }
 
 // Patch sends a PATCH request
 func (r *Request) Patch() (*Response, error) {
-	return r.sendRequest(MethodPatch)
+	return r.sendRequest(PATCH)
 }
 
 // Put sends a PUT request
 func (r *Request) Put() (*Response, error) {
-	return r.sendRequest(MethodPut)
+	return r.sendRequest(PUT)
 }
 
 // Delete sends a DELETE request
 func (r *Request) Delete() (*Response, error) {
-	return r.sendRequest(MethodDelete)
+	return r.sendRequest(DELETE)
 }
 
 // chooseExecutionStrategy determines which execution method to use based on circuit breaker configuration
@@ -366,7 +378,7 @@ func (r *Request) executeWithCbRedis() (*Response, error) {
 
 func (r *Request) validateURL() error {
 	if r.request.URL.String() == "" {
-		return errors.New(msg_empty_url)
+		return errors.New(msgEmptyUrl)
 	}
 	return nil
 }
