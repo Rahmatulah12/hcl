@@ -32,7 +32,7 @@ type request struct {
 	Query  any `json:"query,omitempty"`
 	Header any `json:"header,omitempty"`
 	Method any `json:"method,omitempty"`
-	Body   any `json:"body,omitempty"`
+	Body   any `json:"payload,omitempty"`
 }
 
 type response struct {
