@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/Rahmatulah12/hcl"
@@ -41,23 +40,38 @@ func main() {
 }
 
 func proccess(r *hcl.Request) {
-	file, err := os.Open("/home/rahmatullah/go/src/plugin/hcl/util.go")
-	if err != nil {
-		panic(err.Error())
-	}
 	// get request
 	resp, err := r.SetUrl("http://localhost:3000/networkprofile/1122334455").
 		SetHeaders(map[string]string{"Content-Type": "application/json"}).
 		SetQueryParams(map[string]string{"a": "b", "c": "d"}).
-		SetHeader("cicak", "cicak").
-		SetHeader("X-API-KEY", "abcdefghijklmnopqrstu").
+		SetHeader("cicak", "cicakcicakdidinding").
+		SetHeader("X-API-KEY", "abcdefghijklmnopqrstuKKLLXX").
 		SetHeader("API_KEY", "abcdefghijklmnopqrstu").
-		SetMaskedFields([]string{"Cicak", "x-api-key"}).
-		SetMaskedFields([]string{"api_key"}).
-		SetFormData(map[string]interface{}{
+		SetMaskedFields([]*hcl.MaskConfig{
+			{
+				Field:     "api_key",
+				MaskType:  hcl.PartialMask,
+				ShowFirst: 5,
+				ShowLast:  3,
+			},
+			{
+				Field:     "msisdn",
+				MaskType:  hcl.PartialMask,
+				ShowFirst: 3,
+				ShowLast:  3,
+			},
+			{
+				Field:    "x-api-key",
+				MaskType: hcl.FullMask,
+			},
+			{
+				Field:    "cicak",
+				MaskType: hcl.Default,
+			},
+		}).
+		SetJsonPayload(map[string]interface{}{
 			"msisdn":     "081292021531",
 			"initialize": false,
-			"file":       file,
 		}).
 		Get()
 

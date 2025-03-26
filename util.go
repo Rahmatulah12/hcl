@@ -25,41 +25,66 @@ func convertInterfaceToJson(data interface{}) string {
 	return string(a)
 }
 
-func maskString(input string) string {
+func maskString(input string, config *MaskConfig) string {
 	length := len(input)
-	if length < 5 {
-		return strings.Repeat("*", 5)
+	if length <= 1 {
+		return "*"
 	}
-	return input[:length-5] + strings.Repeat("*", 5)
+
+	if length >= 255 {
+		return "*"
+	}
+
+	switch config.MaskType {
+	case Default:
+		return strings.Repeat("*", 5)
+	case FullMask:
+		return strings.Repeat("*", length)
+	case PartialMask:
+		// Ensure we don't show more characters than the string length
+		showFirst := min(config.ShowFirst, length)
+		showLast := min(config.ShowLast, length)
+
+		// If showing first and last would cover most of the string, fall back to full mask
+		if showFirst+showLast >= length {
+			return strings.Repeat("*", length)
+		}
+
+		return input[:showFirst] +
+			strings.Repeat("*", length-showFirst-showLast) +
+			input[length-showLast:]
+	default:
+		return input
+	}
 }
 
-func shouldMask(key string, maskFields []string) bool {
+func shouldMask(key string, configs []*MaskConfig) (bool, *MaskConfig) {
 	lowerKey := strings.ToLower(key)
-	for _, field := range maskFields {
-		if lowerKey == strings.ToLower(field) {
-			return true
+	for _, config := range configs {
+		if lowerKey == strings.ToLower(config.Field) {
+			return true, config
 		}
 	}
-	return false
+	return false, nil
 }
 
-func maskValue(value interface{}) interface{} {
+func maskValue(value interface{}, config *MaskConfig) interface{} {
 	switch v := value.(type) {
 	case string:
-		return maskString(v)
+		return maskString(v, config)
 	case int, int8, int16, int32, int64:
 		return "*****"
 	case float32, float64:
 		return "*****"
 	case []interface{}:
 		for i, item := range v {
-			v[i] = maskValue(item)
+			v[i] = maskValue(item, config)
 		}
 		return v
 	case map[string][]string:
 		for key, arr := range v {
 			for i, item := range arr {
-				arr[i] = maskString(item)
+				arr[i] = maskString(item, config)
 			}
 			v[key] = arr
 		}
@@ -67,7 +92,7 @@ func maskValue(value interface{}) interface{} {
 	case map[string][]interface{}:
 		for key, arr := range v {
 			for i, item := range arr {
-				arr[i] = maskValue(item)
+				arr[i] = maskValue(item, config)
 			}
 			v[key] = arr
 		}
@@ -75,7 +100,7 @@ func maskValue(value interface{}) interface{} {
 	case map[interface{}][]string:
 		for key, arr := range v {
 			for i, item := range arr {
-				arr[i] = maskString(item)
+				arr[i] = maskString(item, config)
 			}
 			v[key] = arr
 		}
@@ -83,19 +108,19 @@ func maskValue(value interface{}) interface{} {
 	case map[interface{}][]interface{}:
 		for key, arr := range v {
 			for i, item := range arr {
-				arr[i] = maskValue(item)
+				arr[i] = maskValue(item, config)
 			}
 			v[key] = arr
 		}
 		return v
 	case map[string]interface{}:
 		for key, item := range v {
-			v[key] = maskValue(item)
+			v[key] = maskValue(item, config)
 		}
 		return v
 	case map[interface{}]interface{}:
 		for key, item := range v {
-			v[key] = maskValue(item)
+			v[key] = maskValue(item, config)
 		}
 		return v
 	default:
@@ -103,7 +128,7 @@ func maskValue(value interface{}) interface{} {
 		if reflect.TypeOf(v).Kind() == reflect.Map {
 			mapVal := reflect.ValueOf(v)
 			for _, key := range mapVal.MapKeys() {
-				mapVal.SetMapIndex(key, reflect.ValueOf(maskValue(mapVal.MapIndex(key).Interface())))
+				mapVal.SetMapIndex(key, reflect.ValueOf(maskValue(mapVal.MapIndex(key).Interface(), config)))
 			}
 			return mapVal.Interface()
 		}
@@ -111,24 +136,24 @@ func maskValue(value interface{}) interface{} {
 	}
 }
 
-func maskJSON(jsonStr string, maskFields []string) string {
+func maskJSON(jsonStr string, configs []*MaskConfig) string {
 	var data map[string]interface{}
 	if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
 		return ""
 	}
 
-	maskNestedJSON(&data, maskFields)
+	maskNestedJSON(data, configs)
 
 	return convertInterfaceToJson(data)
 }
 
-func maskNestedJSON(data *map[string]interface{}, maskFields []string) {
-	for key, value := range *data {
-		if shouldMask(key, maskFields) {
-			(*data)[key] = maskValue(value)
+func maskNestedJSON(data map[string]interface{}, configs []*MaskConfig) {
+	for key, value := range data {
+		if isMasked, config := shouldMask(key, configs); isMasked {
+			(data)[key] = maskValue(value, config)
 		} else if nestedMap, ok := value.(map[string]interface{}); ok {
-			maskNestedJSON(&nestedMap, maskFields)
-			(*data)[key] = nestedMap
+			maskNestedJSON(nestedMap, configs)
+			(data)[key] = nestedMap
 		}
 	}
 }

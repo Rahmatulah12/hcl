@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -25,25 +26,25 @@ type log struct {
 }
 
 type request struct {
-	Scheme any `json:"scheme,omitempty"`
-	Host   any `json:"host,omitempty"`
-	Port   any `json:"port,omitempty"`
-	Path   any `json:"path,omitempty"`
-	Query  any `json:"query,omitempty"`
-	Header any `json:"header,omitempty"`
-	Method any `json:"method,omitempty"`
-	Body   any `json:"payload,omitempty"`
+	Scheme string      `json:"scheme,omitempty"`
+	Host   string      `json:"host,omitempty"`
+	Port   string      `json:"port,omitempty"`
+	Path   string      `json:"path,omitempty"`
+	Query  url.Values  `json:"query,omitempty"`
+	Header http.Header `json:"header,omitempty"`
+	Method string      `json:"method,omitempty"`
+	Body   any         `json:"payload,omitempty"`
 }
 
 type response struct {
-	StatusCode any `json:"statusCode,omitempty"`
+	StatusCode int `json:"statusCode,omitempty"`
 	Body       any `json:"body,omitempty"`
 }
 
 type Log struct {
 	start        time.Time
 	l            log
-	maskedFields []string
+	maskedConfig []*MaskConfig
 }
 
 func NewLog() *Log {
@@ -120,8 +121,8 @@ func (lg *Log) writeLog() {
 	dataLog := convertInterfaceToJson(lg.l)
 	var dtLog string
 
-	if len(lg.maskedFields) > 0 {
-		dtLog = maskJSON(dataLog, lg.maskedFields)
+	if len(lg.maskedConfig) > 0 {
+		dtLog = maskJSON(dataLog, lg.maskedConfig)
 		dtLog = lg.mapperLog(dtLog)
 	}
 
