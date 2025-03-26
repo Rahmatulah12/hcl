@@ -282,7 +282,6 @@ func (r *Request) SetMaskedField(conf ...*MaskConfig) *Request {
 }
 
 func (r *Request) SetMaskedFields(configs []*MaskConfig) *Request {
-
 	return r.SetMaskedField(configs...)
 }
 
