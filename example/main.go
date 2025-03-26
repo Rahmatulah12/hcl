@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/Rahmatulah12/hcl"
@@ -40,6 +41,10 @@ func main() {
 }
 
 func proccess(r *hcl.Request) {
+	file, err := os.Open("/home/rahmatullah/go/src/plugin/hcl/util.go")
+	if err != nil {
+		panic(err.Error())
+	}
 	// get request
 	resp, err := r.SetUrl("http://localhost:3000/networkprofile/1122334455").
 		SetHeaders(map[string]string{"Content-Type": "application/json"}).
@@ -49,6 +54,11 @@ func proccess(r *hcl.Request) {
 		SetHeader("API_KEY", "abcdefghijklmnopqrstu").
 		SetMaskedFields([]string{"Cicak", "x-api-key"}).
 		SetMaskedFields([]string{"api_key"}).
+		SetFormData(map[string]interface{}{
+			"msisdn":     "081292021531",
+			"initialize": false,
+			"file":       file,
+		}).
 		Get()
 
 	if err != nil {
