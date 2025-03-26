@@ -53,7 +53,7 @@ func proccess(r *hcl.Request) {
 		SetHeader("X-API-KEY", "abcdefghijklmnopqrstu").
 		SetHeader("API_KEY", "abcdefghijklmnopqrstu").
 		SetMaskedFields([]string{"Cicak", "x-api-key"}).
-		SetMaskedFields([]string{"api_key", "payload"}).
+		SetMaskedFields([]string{"api_key"}).
 		SetFormData(map[string]interface{}{
 			"msisdn":     "081292021531",
 			"initialize": false,

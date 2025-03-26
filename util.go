@@ -27,10 +27,10 @@ func convertInterfaceToJson(data interface{}) string {
 
 func maskString(input string) string {
 	length := len(input)
-	if length >= 5 {
+	if length < 5 {
 		return strings.Repeat("*", 5)
 	}
-	return strings.Repeat("*", length)
+	return input[:length-5] + strings.Repeat("*", 5)
 }
 
 func shouldMask(key string, maskFields []string) bool {
