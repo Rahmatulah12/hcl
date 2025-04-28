@@ -28,7 +28,6 @@ type log struct {
 type request struct {
 	Scheme string      `json:"scheme,omitempty"`
 	Host   string      `json:"host,omitempty"`
-	Port   string      `json:"port,omitempty"`
 	Path   string      `json:"path,omitempty"`
 	Query  url.Values  `json:"query,omitempty"`
 	Header http.Header `json:"header,omitempty"`
@@ -66,10 +65,8 @@ func (lg *Log) setRequest(req *http.Request) {
 		return
 	}
 	// request
-	host, port := parseHostPort(req.URL.Host)
 	lg.l.Req.Scheme = req.URL.Scheme
-	lg.l.Req.Host = host
-	lg.l.Req.Port = port
+	lg.l.Req.Host = req.URL.Host
 	lg.l.Req.Path = req.URL.Path
 	lg.l.Req.Query = req.URL.Query()
 	lg.l.Req.Header = req.Header

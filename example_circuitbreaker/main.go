@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/Rahmatulah12/hcl"
@@ -49,7 +50,7 @@ func main() {
 		ResetTimeout:  10 * time.Second,
 	})
 
-	r := hcl.New(&hcl.HCL{Client: client, Cb: cb})
+	r := hcl.New(&hcl.HCL{Client: client, EnableLog: true, Cb: cb})
 
 	for i := 0; i < 1000; i++ {
 		proccess(r)
@@ -58,11 +59,25 @@ func main() {
 }
 
 func proccess(r *hcl.Request) {
+	pwd, err := os.Getwd()
+
+	if err != nil {
+		panic(err)
+	}
+
+	file, err := os.Open(pwd + "/mask.go")
+	if err != nil {
+		panic(err.Error())
+	}
 	// get request
 	resp, err := r.SetUrl("http://localhost:3000/networkprofile/1122334455").
 		SetHeaders(map[string]string{"Content-Type": "application/json"}).
 		SetQueryParams(map[string]string{"a": "b", "c": "d"}).
 		SetHeader("cicak", "cicak").
+		SetFormData(map[string]interface{}{
+			"test":  "123",
+			"image": file,
+		}).
 		Get()
 
 	if err != nil {

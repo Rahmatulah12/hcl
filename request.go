@@ -2,9 +2,9 @@ package hcl
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -36,15 +36,21 @@ const (
 )
 
 type Request struct {
-	request *http.Request
+	method  string
+	url     *url.URL
+	header  http.Header
+	body    io.ReadCloser
+	ctx     context.Context
 	client  *http.Client
 	Cb      *CircuitBreaker
 	cbRedis *CircuitBreakerRedis
 	cbKey   string
 	log     *Log
+	errs    []error
 }
 
 type HCL struct {
+	Context   context.Context
 	Client    *http.Client
 	Cb        *CircuitBreaker
 	CbRedis   *CircuitBreakerRedis
@@ -52,18 +58,19 @@ type HCL struct {
 }
 
 func New(hcl *HCL) *Request {
-	req, err := http.NewRequest("", "", nil)
+	ctx := hcl.Context
 
-	if err != nil {
-		panic(fmt.Errorf("failed to initialize request: %w", err).Error())
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	return &Request{
-		request: req,
+		ctx:     ctx,
 		client:  hcl.Client,
 		Cb:      cloneCircuitBreaker(hcl.Cb),
 		cbRedis: cloneCircuitBreakerRedis(hcl.CbRedis),
 		log:     initializeLog(hcl.EnableLog),
+		header:  make(http.Header),
 	}
 }
 
@@ -100,27 +107,30 @@ func initializeLog(enableLog bool) *Log {
 
 func (r *Request) SetUrl(uri string) *Request {
 	if uri == "" {
-		panic(msgEmptyUrl)
+		r.errs = append(r.errs, fmt.Errorf(msgEmptyUrl))
+		return r
 	}
 
 	parsedUrl, err := url.Parse(uri)
 	if err != nil {
-		panic(err.Error())
+		r.errs = append(r.errs, err)
+		return r
 	}
 
-	r.request.URL = parsedUrl
+	r.url = parsedUrl
 
 	return r
 }
 
 func (r *Request) SetQueryParam(key, val string) *Request {
 	if key == "" || val == "" {
-		panic(msgFailedKeyVal)
+		r.errs = append(r.errs, fmt.Errorf(msgFailedKeyVal))
+		return r
 	}
 
-	q := r.request.URL.Query()
+	q := r.url.Query()
 	q.Set(key, val)
-	r.request.URL.RawQuery = q.Encode()
+	r.url.RawQuery = q.Encode()
 
 	return r
 }
@@ -129,36 +139,36 @@ func (r *Request) SetQueryParams(val map[string]string) *Request {
 	if val == nil {
 		return r
 	}
-	params := r.request.URL.Query()
 
 	for k, v := range val {
-		params.Add(k, v)
+		r.SetQueryParam(k, v)
 	}
-	r.request.URL.RawQuery = params.Encode()
 
 	return r
 }
 
 func (r *Request) SetHeader(key, val string) *Request {
 	if key == "" || val == "" {
-		panic(msgFailedKeyVal)
+		r.errs = append(r.errs, fmt.Errorf(msgFailedKeyVal))
+		return r
 	}
 
-	r.request.Header.Set(key, val)
+	r.header.Set(key, val)
 
 	return r
 }
 
 func (r *Request) SetHeaders(val map[string]string) *Request {
 	if val == nil {
-		panic("something went wrong, please set header request")
+		r.errs = append(r.errs, fmt.Errorf("something went wrong, please set header request"))
+		return r
 	}
 
 	for k, v := range val {
 		if k == "" || v == "" {
 			continue
 		}
-		r.request.Header.Set(k, v)
+		r.SetHeader(k, v)
 	}
 
 	return r
@@ -166,39 +176,58 @@ func (r *Request) SetHeaders(val map[string]string) *Request {
 
 func (r *Request) SetJsonPayload(body interface{}) *Request {
 	if body == nil {
-		panic(msgFailedBody)
+		r.errs = append(r.errs, fmt.Errorf(msgFailedBody))
+		return r
 	}
 
-	b, err := json.Marshal(body)
-	if err != nil {
-		panic(err.Error())
+	var b []byte
+	var err error
+
+	switch v := body.(type) {
+	case []byte:
+		b = v
+	default:
+		b, err = json.Marshal(v)
+		if err != nil {
+			r.errs = append(r.errs, fmt.Errorf("failed to marshal json: %w", err))
+		}
 	}
 
-	r.request.Header.Set(contentType, contentTypeJSON)
-	r.request.Body = io.NopCloser(bytes.NewBuffer(b))
+	r.header.Set(contentType, contentTypeJSON)
+	r.body = io.NopCloser(bytes.NewBuffer(b))
 
 	return r
 }
 
 func (r *Request) SetXMLPayload(body interface{}) *Request {
 	if body == nil {
-		panic(msgFailedBody)
+		r.errs = append(r.errs, fmt.Errorf(msgFailedBody))
+		return r
 	}
 
-	b, err := xml.Marshal(body)
-	if err != nil {
-		panic(err.Error())
+	var b []byte
+	var err error
+
+	switch v := body.(type) {
+	case []byte:
+		b = v
+	default:
+		b, err = xml.Marshal(body)
+		if err != nil {
+			r.errs = append(r.errs, err)
+		}
 	}
 
-	r.request.Header.Set(contentType, contentTypeXML)
-	r.request.Body = io.NopCloser(bytes.NewBuffer(b))
+	r.header.Set(contentType, contentTypeXML)
+	r.body = io.NopCloser(bytes.NewBuffer(b))
 
 	return r
 }
 
 func (r *Request) SetFormData(data map[string]interface{}) *Request {
 	if data == nil {
-		panic("form data cannot be nil")
+		r.errs = append(r.errs, fmt.Errorf("form data cannot be nil"))
+		return r
 	}
 
 	var body bytes.Buffer
@@ -221,32 +250,34 @@ func (r *Request) SetFormData(data map[string]interface{}) *Request {
 		case io.Reader:
 			part, err := writer.CreateFormFile(key, "file") // Default filename "file"
 			if err != nil {
-				panic(err.Error())
+				r.errs = append(r.errs, err)
+				return r
 			}
 			io.Copy(part, v)
 		case *os.File:
 			part, err := writer.CreateFormFile(key, v.Name())
 			if err != nil {
-				panic(err)
+				r.errs = append(r.errs, err)
 			}
 			io.Copy(part, v)
 		default:
 			msg := fmt.Sprintf("Unsupported type for key: %s\n", key)
-			panic(msg)
+			r.errs = append(r.errs, fmt.Errorf(msg))
 		}
 	}
 
 	writer.Close()
 
-	r.request.Header.Set(contentType, writer.FormDataContentType())
-	r.request.Body = io.NopCloser(&body)
+	r.header.Set(contentType, writer.FormDataContentType())
+	r.body = io.NopCloser(&body)
 
 	return r
 }
 
 func (r *Request) SetFormURLEncoded(data map[string]string) *Request {
 	if data == nil {
-		panic(msgFailedBody)
+		r.errs = append(r.errs, fmt.Errorf(msgFailedBody))
+		return r
 	}
 
 	formData := url.Values{}
@@ -261,15 +292,16 @@ func (r *Request) SetFormURLEncoded(data map[string]string) *Request {
 	// Encode form data
 	encodedForm := formData.Encode()
 
-	r.request.Body = io.NopCloser(bytes.NewBufferString(encodedForm))
-	r.request.Header.Set(contentType, "application/x-www-form-urlencoded")
+	r.body = io.NopCloser(bytes.NewBufferString(encodedForm))
+	r.header.Set(contentType, "application/x-www-form-urlencoded")
 
 	return r
 }
 
 func (r *Request) SetCircuitBreakerKey(key string) *Request {
 	if key == "" {
-		panic("key cannot be empty")
+		r.errs = append(r.errs, fmt.Errorf("key cannot be empty"))
+		return r
 	}
 
 	r.cbKey = key
@@ -287,7 +319,7 @@ func (r *Request) SetMaskedFields(configs []*MaskConfig) *Request {
 
 // sendRequest handles all HTTP methods using a single function
 func (r *Request) sendRequest(method RequestMethod) (*Response, error) {
-	r.request.Method = string(method)
+	r.method = string(method)
 	return r.chooseExecutionStrategy()
 }
 
@@ -330,16 +362,65 @@ func (r *Request) chooseExecutionStrategy() (*Response, error) {
 	return r.execute()
 }
 
+func (r *Request) fetchErrors() error {
+	if len(r.errs) > 0 {
+		var e error
+		for _, err := range r.errs {
+			e = err
+			break
+		}
+		return e
+	}
+	return nil
+}
+
 func (r *Request) execute() (*Response, error) {
-	if err := r.validateURL(); err != nil {
+	r.log.initiate()
+	r.log.setRequest(&http.Request{
+		Method: r.method,
+		URL:    r.url,
+		Header: r.header,
+	})
+	defer r.log.writeLog()
+	// Fetch errors if any
+	if err := r.fetchErrors(); err != nil {
+		r.log.setError(err)
 		return nil, err
 	}
 
-	return r.performRequest(nil)
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(r.ctx, r.method, r.url.String(), r.body)
+	if err != nil {
+		r.log.setError(err)
+		return nil, err
+	}
+	r.log.setRequest(req)
+
+	// Set headers
+	req.Header = r.header
+
+	// Execute request
+	resp, err := r.client.Do(req)
+	if err != nil {
+		r.log.setError(err)
+		return nil, err
+	}
+
+	return (*Response)(resp), nil
 }
 
 func (r *Request) executeWithCb() (*Response, error) {
-	if err := r.validateURL(); err != nil {
+	r.log.initiate()
+	r.log.setRequest(&http.Request{
+		Method: r.method,
+		URL:    r.url,
+		Header: r.header,
+	})
+	defer r.log.writeLog()
+
+	// Fetch errors if any
+	if err := r.fetchErrors(); err != nil {
+		r.log.setError(err)
 		return nil, err
 	}
 
@@ -348,21 +429,55 @@ func (r *Request) executeWithCb() (*Response, error) {
 		return nil, errRefuse
 	}
 
-	return r.performRequest(func(resp *http.Response, err error) {
-		if err == nil && resp.StatusCode < http.StatusInternalServerError {
-			r.Cb.reportResult(true)
-		} else if resp != nil && resp.StatusCode >= http.StatusInternalServerError {
-			r.Cb.reportResult(false)
-		}
-	})
-}
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(r.ctx, r.method, r.url.String(), r.body)
+	if err != nil {
+		r.log.setError(err)
+		return nil, err
+	}
+	r.log.setRequest(req)
 
-func (r *Request) executeWithCbRedis() (*Response, error) {
-	if err := r.validateURL(); err != nil {
+	// Set headers
+	req.Header = r.header
+
+	// Execute request
+	resp, err := r.client.Do(req)
+	if err != nil {
+		r.log.setError(err)
 		return nil, err
 	}
 
-	if err := r.validateRedisKey(); err != nil {
+	if inArray(
+		resp.StatusCode,
+		[]int{
+			http.StatusRequestTimeout,
+			http.StatusTooManyRequests,
+			http.StatusInternalServerError,
+			http.StatusBadGateway,
+			http.StatusServiceUnavailable,
+			http.StatusGatewayTimeout,
+		},
+	) {
+		r.Cb.reportResult(false)
+	} else {
+		r.Cb.reportResult(true)
+	}
+
+	return (*Response)(resp), nil
+}
+
+func (r *Request) executeWithCbRedis() (*Response, error) {
+	r.log.initiate()
+	r.log.setRequest(&http.Request{
+		Method: r.method,
+		URL:    r.url,
+		Header: r.header,
+	})
+	defer r.log.writeLog()
+
+	// Fetch errors if any
+	if err := r.fetchErrors(); err != nil {
+		r.log.setError(err)
 		return nil, err
 	}
 
@@ -371,53 +486,38 @@ func (r *Request) executeWithCbRedis() (*Response, error) {
 		return nil, err
 	}
 
-	return r.performRequest(func(resp *http.Response, err error) {
-		if err == nil && resp.StatusCode < http.StatusBadRequest {
-			r.cbRedis.reset(r.cbKey)
-		} else if resp != nil && resp.StatusCode >= http.StatusInternalServerError {
-			r.cbRedis.recordFailure(r.cbKey)
-		}
-	})
-}
-
-func (r *Request) validateURL() error {
-	if r.request.URL.String() == "" {
-		return errors.New(msgEmptyUrl)
-	}
-	return nil
-}
-
-func (r *Request) validateRedisKey() error {
-	if r.cbKey == "" {
-		err := fmt.Errorf("circuit breaker key cannot be empty")
-		r.log.setError(err)
-		return err
-	}
-	return nil
-}
-
-// performRequest handles the common request execution logic
-func (r *Request) performRequest(callback func(*http.Response, error)) (*Response, error) {
-	r.log.initiate()
-	r.log.setRequest(r.request)
-	defer r.log.writeLog()
-
-	resp, err := r.client.Do(r.request)
-	r.log.setResponse(resp)
-
-	if callback != nil {
-		callback(resp, err)
-	}
-
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(r.ctx, r.method, r.url.String(), r.body)
 	if err != nil {
 		r.log.setError(err)
-		return (*Response)(resp), err
+		return nil, err
+	}
+	r.log.setRequest(req)
+
+	// Set headers
+	req.Header = r.header
+
+	// Execute request
+	resp, err := r.client.Do(req)
+	if err != nil {
+		r.log.setError(err)
+		return nil, err
 	}
 
-	if resp.StatusCode >= http.StatusBadRequest {
-		err = fmt.Errorf("error, response from client: %s", resp.Status)
-		r.log.setError(err)
-		return (*Response)(resp), err
+	if inArray(
+		resp.StatusCode,
+		[]int{
+			http.StatusRequestTimeout,
+			http.StatusTooManyRequests,
+			http.StatusInternalServerError,
+			http.StatusBadGateway,
+			http.StatusServiceUnavailable,
+			http.StatusGatewayTimeout,
+		},
+	) {
+		r.cbRedis.recordFailure(r.cbKey)
+	} else {
+		r.cbRedis.reset(r.cbKey)
 	}
 
 	return (*Response)(resp), nil
