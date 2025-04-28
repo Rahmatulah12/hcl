@@ -8,7 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var errRefuse = errors.New("request refused. the circuit is open")
+var errRefuse = errors.New("request refused. the circuit breaker is open")
 
 type CircuitBreakerRedis struct {
 	Client       *redis.Client

@@ -49,15 +49,14 @@ func main() {
 			Password: "", // no password set
 			DB:       0,  // use default DB
 		}),
-		FailureLimit: 3,
-		ResetTimeout: 2 * time.Second,
+		FailureLimit: 5,
+		ResetTimeout: 10 * time.Second,
 	})
 
 	r := hcl.New(&hcl.HCL{Client: client, CbRedis: cbRedis})
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 10000; i++ {
 		proccess(r)
-		time.Sleep(1)
 	}
 }
 
