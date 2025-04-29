@@ -47,7 +47,9 @@ type Log struct {
 }
 
 func NewLog() *Log {
-	return &Log{}
+	return &Log{
+		maskedConfig: make([]*MaskConfig, 0),
+	}
 }
 
 func (lg *Log) initiate() {

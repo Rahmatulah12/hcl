@@ -309,16 +309,36 @@ func (r *Request) SetCircuitBreakerKey(key string) *Request {
 }
 
 func (r *Request) SetMaskedField(conf ...*MaskConfig) *Request {
+	if r.log == nil {
+		return r
+	}
+
+	if len(conf) <= 0 {
+		return r
+	}
+
 	r.log.maskedConfig = append(r.log.maskedConfig, conf...)
 	return r
 }
 
 func (r *Request) SetMaskedFields(configs []*MaskConfig) *Request {
+	if r.log == nil {
+		return r
+	}
+
+	if len(configs) <= 0 {
+		return r
+	}
+
 	return r.SetMaskedField(configs...)
 }
 
 // sendRequest handles all HTTP methods using a single function
 func (r *Request) sendRequest(method RequestMethod) (*Response, error) {
+	if r == nil {
+		return nil, fmt.Errorf("request cannot be nil, please initiate library")
+	}
+
 	r.method = string(method)
 	return r.chooseExecutionStrategy()
 }
@@ -405,6 +425,7 @@ func (r *Request) execute() (*Response, error) {
 		r.log.setError(err)
 		return nil, err
 	}
+	r.log.setResponse(resp)
 
 	return (*Response)(resp), nil
 }
@@ -446,6 +467,7 @@ func (r *Request) executeWithCb() (*Response, error) {
 		r.log.setError(err)
 		return nil, err
 	}
+	r.log.setResponse(resp)
 
 	if inArray(
 		resp.StatusCode,
@@ -503,6 +525,7 @@ func (r *Request) executeWithCbRedis() (*Response, error) {
 		r.log.setError(err)
 		return nil, err
 	}
+	r.log.setResponse(resp)
 
 	if inArray(
 		resp.StatusCode,
