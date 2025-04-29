@@ -58,7 +58,21 @@ type HCL struct {
 }
 
 func New(hcl *HCL) *Request {
-	ctx := hcl.Context
+	var (
+		ctx     context.Context
+		client  *http.Client
+		cb      *CircuitBreaker
+		cbRedis *CircuitBreakerRedis
+		log     *Log
+	)
+
+	if hcl != nil {
+		ctx = hcl.Context
+		client = hcl.Client
+		cb = cloneCircuitBreaker(hcl.Cb)
+		cbRedis = cloneCircuitBreakerRedis(hcl.CbRedis)
+		log = initializeLog(hcl.EnableLog)
+	}
 
 	if ctx == nil {
 		ctx = context.Background()
@@ -66,10 +80,10 @@ func New(hcl *HCL) *Request {
 
 	return &Request{
 		ctx:     ctx,
-		client:  hcl.Client,
-		Cb:      cloneCircuitBreaker(hcl.Cb),
-		cbRedis: cloneCircuitBreakerRedis(hcl.CbRedis),
-		log:     initializeLog(hcl.EnableLog),
+		client:  client,
+		Cb:      cb,
+		cbRedis: cbRedis,
+		log:     log,
 		header:  make(http.Header),
 	}
 }
@@ -111,20 +125,43 @@ func (r *Request) SetUrl(uri string) *Request {
 		return r
 	}
 
-	parsedUrl, err := url.Parse(uri)
+	_, err := url.ParseRequestURI(uri)
 	if err != nil {
-		r.errs = append(r.errs, err)
+		r.errs = append(r.errs, fmt.Errorf("invalid URL: %w", err))
 		return r
 	}
 
-	r.url = parsedUrl
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		r.errs = append(r.errs, fmt.Errorf("failed to parse URL : %w", err))
+		return r
+	}
 
+	r.url = parsed
 	return r
 }
 
 func (r *Request) SetQueryParam(key, val string) *Request {
 	if key == "" || val == "" {
 		r.errs = append(r.errs, fmt.Errorf(msgFailedKeyVal))
+		return r
+	}
+
+	if r.url == nil {
+		r.errs = append(r.errs, fmt.Errorf("url is not set, call SetUrl first"))
+		return r
+	}
+
+	// Validasi skema dan host URL
+	if r.url.Scheme == "" || r.url.Host == "" {
+		r.errs = append(r.errs, fmt.Errorf("invalid URL: missing scheme or host"))
+		return r
+	}
+
+	// Validasi ulang URL untuk memastikan URL valid secara sintaksis
+	_, err := url.ParseRequestURI(r.url.String())
+	if err != nil {
+		r.errs = append(r.errs, fmt.Errorf("invalid URL: %w", err))
 		return r
 	}
 
@@ -258,11 +295,13 @@ func (r *Request) SetFormData(data map[string]interface{}) *Request {
 			part, err := writer.CreateFormFile(key, v.Name())
 			if err != nil {
 				r.errs = append(r.errs, err)
+				return r
 			}
 			io.Copy(part, v)
 		default:
 			msg := fmt.Sprintf("Unsupported type for key: %s\n", key)
 			r.errs = append(r.errs, fmt.Errorf(msg))
+			return r
 		}
 	}
 
@@ -395,6 +434,14 @@ func (r *Request) fetchErrors() error {
 }
 
 func (r *Request) execute() (*Response, error) {
+	if r == nil {
+		return nil, fmt.Errorf("request cannot be nil, please initiate library")
+	}
+
+	if r.client == nil {
+		r.client = http.DefaultClient
+	}
+
 	r.log.initiate()
 	r.log.setRequest(&http.Request{
 		Method: r.method,
@@ -431,6 +478,14 @@ func (r *Request) execute() (*Response, error) {
 }
 
 func (r *Request) executeWithCb() (*Response, error) {
+	if r == nil {
+		return nil, fmt.Errorf("request cannot be nil, please initiate library")
+	}
+
+	if r.client == nil {
+		r.client = http.DefaultClient
+	}
+
 	r.log.initiate()
 	r.log.setRequest(&http.Request{
 		Method: r.method,
@@ -489,6 +544,14 @@ func (r *Request) executeWithCb() (*Response, error) {
 }
 
 func (r *Request) executeWithCbRedis() (*Response, error) {
+	if r == nil {
+		return nil, fmt.Errorf("request cannot be nil, please initiate library")
+	}
+
+	if r.client == nil {
+		r.client = http.DefaultClient
+	}
+
 	r.log.initiate()
 	r.log.setRequest(&http.Request{
 		Method: r.method,

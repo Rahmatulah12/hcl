@@ -17,27 +17,26 @@ const (
 )
 
 type log struct {
-	Time    any      `json:"time"`
-	Level   any      `json:"level"`
-	Latency any      `json:"latency"`
-	Error   any      `json:"error"`
+	Time    string   `json:"time"`
+	Level   string   `json:"level"`
+	Latency string   `json:"latency"`
+	Error   string   `json:"error"`
 	Req     request  `json:"request,omitempty"`
 	Resp    response `json:"response,omitempty"`
 }
 
 type request struct {
-	Scheme string      `json:"scheme,omitempty"`
 	Host   string      `json:"host,omitempty"`
 	Path   string      `json:"path,omitempty"`
 	Query  url.Values  `json:"query,omitempty"`
 	Header http.Header `json:"header,omitempty"`
 	Method string      `json:"method,omitempty"`
-	Body   any         `json:"payload,omitempty"`
+	Body   string      `json:"payload,omitempty"`
 }
 
 type response struct {
-	StatusCode int `json:"statusCode,omitempty"`
-	Body       any `json:"body,omitempty"`
+	StatusCode int    `json:"statusCode,omitempty"`
+	Body       string `json:"body,omitempty"`
 }
 
 type Log struct {
@@ -48,6 +47,7 @@ type Log struct {
 
 func NewLog() *Log {
 	return &Log{
+		l:            log{},
 		maskedConfig: make([]*MaskConfig, 0),
 	}
 }
@@ -63,24 +63,23 @@ func (lg *Log) initiate() {
 }
 
 func (lg *Log) setRequest(req *http.Request) {
-	if lg == nil || req == nil {
+	if lg == nil || req == nil || req.URL == nil {
 		return
 	}
-	// request
-	lg.l.Req.Scheme = req.URL.Scheme
+
 	lg.l.Req.Host = req.URL.Host
 	lg.l.Req.Path = req.URL.Path
 	lg.l.Req.Query = req.URL.Query()
 	lg.l.Req.Header = req.Header
 	lg.l.Req.Method = req.Method
 
-	var reqBody []byte
 	if req.Body != nil {
-		reqBody, _ = io.ReadAll(req.Body)                 // read all body
-		req.Body = io.NopCloser(bytes.NewBuffer(reqBody)) // write back body
+		reqBody, err := io.ReadAll(req.Body)
+		if err == nil {
+			lg.l.Req.Body = strings.Join(strings.Fields(string(reqBody)), "")
+			req.Body = io.NopCloser(bytes.NewBuffer(reqBody))
+		}
 	}
-
-	lg.l.Req.Body = strings.Join(strings.Fields(string(reqBody)), "")
 }
 
 func (lg *Log) setResponse(resp *http.Response) {
@@ -88,19 +87,19 @@ func (lg *Log) setResponse(resp *http.Response) {
 		return
 	}
 
-	// response
 	lg.l.Resp.StatusCode = resp.StatusCode
-	var respBody []byte
-	if resp.Body != nil {
-		respBody, _ = io.ReadAll(resp.Body)                 // read all body
-		resp.Body = io.NopCloser(bytes.NewBuffer(respBody)) // write back body
-	}
 
-	lg.l.Resp.Body = strings.Join(strings.Fields(string(respBody)), "")
+	if resp.Body != nil {
+		respBody, err := io.ReadAll(resp.Body)
+		if err == nil {
+			lg.l.Resp.Body = strings.Join(strings.Fields(string(respBody)), "")
+			resp.Body = io.NopCloser(bytes.NewBuffer(respBody))
+		}
+	}
 }
 
 func (lg *Log) setError(err error) {
-	if lg == nil {
+	if lg == nil || err == nil {
 		return
 	}
 
@@ -114,26 +113,28 @@ func (lg *Log) writeLog() {
 	}
 
 	latency := time.Since(lg.start).Milliseconds()
-	// latency
 	lg.l.Latency = fmt.Sprintf("%d ms", latency)
-	// write log
+
 	dataLog := convertInterfaceToJson(lg.l)
-	var dtLog string
+	dtLog := dataLog
 
 	if len(lg.maskedConfig) > 0 {
-		dtLog = maskJSON(dataLog, lg.maskedConfig)
-		dtLog = lg.mapperLog(dtLog)
+		masked := maskJSON(dataLog, lg.maskedConfig)
+		mapped := lg.mapperLog(masked)
+		if mapped != "" {
+			dtLog = mapped
+		}
 	}
 
-	if dtLog != "" {
-		dataLog = dtLog
-	}
-
-	fmt.Println(dataLog)
+	fmt.Println(dtLog)
 }
 
 func (lg *Log) mapperLog(jsonStr string) string {
-	var l *log
+	if lg == nil || jsonStr == "" {
+		return ""
+	}
+
+	var l log
 	err := json.Unmarshal([]byte(jsonStr), &l)
 	if err != nil {
 		return ""
