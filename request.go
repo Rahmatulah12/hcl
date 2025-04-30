@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -36,25 +37,25 @@ const (
 )
 
 type Request struct {
-	method  string
-	url     *url.URL
-	header  http.Header
-	body    io.ReadCloser
-	ctx     context.Context
-	client  *http.Client
-	Cb      *CircuitBreaker
-	cbRedis *CircuitBreakerRedis
-	cbKey   string
-	log     *Log
-	errs    []error
+	method          string
+	url             *url.URL
+	header          http.Header
+	body            io.ReadCloser
+	ctx             context.Context
+	client          *http.Client
+	Cb              *CircuitBreaker
+	cbRedis         *CircuitBreakerRedis
+	cbKey           string
+	log             *Log
+	errs            []error
+	isRepeatableLog bool
 }
 
 type HCL struct {
-	Context   context.Context
-	Client    *http.Client
-	Cb        *CircuitBreaker
-	CbRedis   *CircuitBreakerRedis
-	EnableLog bool
+	Context context.Context
+	Client  *http.Client
+	Cb      *CircuitBreaker
+	CbRedis *CircuitBreakerRedis
 }
 
 func New(hcl *HCL) *Request {
@@ -63,7 +64,6 @@ func New(hcl *HCL) *Request {
 		client  *http.Client
 		cb      *CircuitBreaker
 		cbRedis *CircuitBreakerRedis
-		log     *Log
 	)
 
 	if hcl != nil {
@@ -71,7 +71,6 @@ func New(hcl *HCL) *Request {
 		client = hcl.Client
 		cb = cloneCircuitBreaker(hcl.Cb)
 		cbRedis = cloneCircuitBreakerRedis(hcl.CbRedis)
-		log = initializeLog(hcl.EnableLog)
 	}
 
 	if ctx == nil {
@@ -83,7 +82,6 @@ func New(hcl *HCL) *Request {
 		client:  client,
 		Cb:      cb,
 		cbRedis: cbRedis,
-		log:     log,
 		header:  make(http.Header),
 	}
 }
@@ -119,7 +117,27 @@ func initializeLog(enableLog bool) *Log {
 	return nil
 }
 
+func (r *Request) EnableLog(isRepeatableLog bool) *Request {
+	if r == nil {
+		return nil
+	}
+
+	r.isRepeatableLog = isRepeatableLog
+	r.log = initializeLog(true)
+	return r
+}
+
+func (r *Request) turnOffLog() {
+	r.isRepeatableLog = false
+	r.log = nil
+}
+
 func (r *Request) SetUrl(uri string) *Request {
+	// Check if the request object is nil
+	if r == nil {
+		return nil
+	}
+
 	if uri == "" {
 		r.errs = append(r.errs, fmt.Errorf(msgEmptyUrl))
 		return r
@@ -142,6 +160,11 @@ func (r *Request) SetUrl(uri string) *Request {
 }
 
 func (r *Request) SetQueryParam(key, val string) *Request {
+	// Check if the request object is nil
+	if r == nil {
+		return nil
+	}
+
 	if key == "" || val == "" {
 		r.errs = append(r.errs, fmt.Errorf(msgFailedKeyVal))
 		return r
@@ -173,6 +196,11 @@ func (r *Request) SetQueryParam(key, val string) *Request {
 }
 
 func (r *Request) SetQueryParams(val map[string]string) *Request {
+	// Check if the request object is nil
+	if r == nil {
+		return nil
+	}
+
 	if val == nil {
 		return r
 	}
@@ -196,6 +224,11 @@ func (r *Request) SetHeader(key, val string) *Request {
 }
 
 func (r *Request) SetHeaders(val map[string]string) *Request {
+	// Check if the request object is nil
+	if r == nil {
+		return nil
+	}
+
 	if val == nil {
 		r.errs = append(r.errs, fmt.Errorf("something went wrong, please set header request"))
 		return r
@@ -212,6 +245,11 @@ func (r *Request) SetHeaders(val map[string]string) *Request {
 }
 
 func (r *Request) SetJsonPayload(body interface{}) *Request {
+	// Check if the request object is nil
+	if r == nil {
+		return nil
+	}
+
 	if body == nil {
 		r.errs = append(r.errs, fmt.Errorf(msgFailedBody))
 		return r
@@ -237,6 +275,11 @@ func (r *Request) SetJsonPayload(body interface{}) *Request {
 }
 
 func (r *Request) SetXMLPayload(body interface{}) *Request {
+	// Check if the request object is nil
+	if r == nil {
+		return nil
+	}
+
 	if body == nil {
 		r.errs = append(r.errs, fmt.Errorf(msgFailedBody))
 		return r
@@ -262,6 +305,11 @@ func (r *Request) SetXMLPayload(body interface{}) *Request {
 }
 
 func (r *Request) SetFormData(data map[string]interface{}) *Request {
+	// Check if the request object is nil
+	if r == nil {
+		return nil
+	}
+
 	if data == nil {
 		r.errs = append(r.errs, fmt.Errorf("form data cannot be nil"))
 		return r
@@ -314,6 +362,11 @@ func (r *Request) SetFormData(data map[string]interface{}) *Request {
 }
 
 func (r *Request) SetFormURLEncoded(data map[string]string) *Request {
+	// Check if the request object is nil
+	if r == nil {
+		return nil
+	}
+
 	if data == nil {
 		r.errs = append(r.errs, fmt.Errorf(msgFailedBody))
 		return r
@@ -338,6 +391,11 @@ func (r *Request) SetFormURLEncoded(data map[string]string) *Request {
 }
 
 func (r *Request) SetCircuitBreakerKey(key string) *Request {
+	// Check if the request object is nil
+	if r == nil {
+		return nil
+	}
+
 	if key == "" {
 		r.errs = append(r.errs, fmt.Errorf("key cannot be empty"))
 		return r
@@ -348,6 +406,11 @@ func (r *Request) SetCircuitBreakerKey(key string) *Request {
 }
 
 func (r *Request) SetMaskedField(conf ...*MaskConfig) *Request {
+	// Check if the request object is nil
+	if r == nil {
+		return nil
+	}
+
 	if r.log == nil {
 		return r
 	}
@@ -361,6 +424,11 @@ func (r *Request) SetMaskedField(conf ...*MaskConfig) *Request {
 }
 
 func (r *Request) SetMaskedFields(configs []*MaskConfig) *Request {
+	// Check if the request object is nil
+	if r == nil {
+		return nil
+	}
+
 	if r.log == nil {
 		return r
 	}
@@ -384,21 +452,41 @@ func (r *Request) sendRequest(method RequestMethod) (*Response, error) {
 
 // Get sends a GET request
 func (r *Request) Get() (*Response, error) {
+	// Check if the request object is nil
+	if r == nil {
+		return nil, errors.New("failed to execute process, please initiate first")
+	}
+
 	return r.sendRequest(GET)
 }
 
 // Post sends a POST request
 func (r *Request) Post() (*Response, error) {
+	// Check if the request object is nil
+	if r == nil {
+		return nil, errors.New("failed to execute process, please initiate first")
+	}
+
 	return r.sendRequest(POST)
 }
 
 // Patch sends a PATCH request
 func (r *Request) Patch() (*Response, error) {
+	// Check if the request object is nil
+	if r == nil {
+		return nil, errors.New("failed to execute process, please initiate first")
+	}
+
 	return r.sendRequest(PATCH)
 }
 
 // Put sends a PUT request
 func (r *Request) Put() (*Response, error) {
+	// Check if the request object is nil
+	if r == nil {
+		return nil, errors.New("failed to execute process, please initiate first")
+	}
+
 	return r.sendRequest(PUT)
 }
 
@@ -409,6 +497,11 @@ func (r *Request) Delete() (*Response, error) {
 
 // chooseExecutionStrategy determines which execution method to use based on circuit breaker configuration
 func (r *Request) chooseExecutionStrategy() (*Response, error) {
+	// Check if the request object is nil
+	if r == nil {
+		return nil, errors.New("failed to execute process, please initiate first")
+	}
+
 	if r.Cb != nil && r.cbRedis != nil {
 		return r.execute()
 	}
@@ -422,6 +515,11 @@ func (r *Request) chooseExecutionStrategy() (*Response, error) {
 }
 
 func (r *Request) fetchErrors() error {
+	// Check if the request object is nil
+	if r == nil {
+		return errors.New("failed to execute process, please initiate first")
+	}
+
 	if len(r.errs) > 0 {
 		var e error
 		for _, err := range r.errs {
@@ -448,7 +546,15 @@ func (r *Request) execute() (*Response, error) {
 		URL:    r.url,
 		Header: r.header,
 	})
-	defer r.log.writeLog()
+
+	defer func() {
+		r.log.writeLog()
+
+		if !r.isRepeatableLog {
+			r.turnOffLog()
+		}
+	}()
+
 	// Fetch errors if any
 	if err := r.fetchErrors(); err != nil {
 		r.log.setError(err)
@@ -492,7 +598,14 @@ func (r *Request) executeWithCb() (*Response, error) {
 		URL:    r.url,
 		Header: r.header,
 	})
-	defer r.log.writeLog()
+
+	defer func() {
+		r.log.writeLog()
+
+		if !r.isRepeatableLog {
+			r.turnOffLog()
+		}
+	}()
 
 	// Fetch errors if any
 	if err := r.fetchErrors(); err != nil {
@@ -558,7 +671,14 @@ func (r *Request) executeWithCbRedis() (*Response, error) {
 		URL:    r.url,
 		Header: r.header,
 	})
-	defer r.log.writeLog()
+
+	defer func() {
+		r.log.writeLog()
+
+		if !r.isRepeatableLog {
+			r.turnOffLog()
+		}
+	}()
 
 	// Fetch errors if any
 	if err := r.fetchErrors(); err != nil {

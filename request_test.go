@@ -33,11 +33,10 @@ func TestNewWithContext(t *testing.T) {
 	}
 
 	hcl := &HCL{
-		Context:   context.TODO(),
-		Client:    &http.Client{},
-		Cb:        cb,
-		CbRedis:   cbRedis,
-		EnableLog: true,
+		Context: context.TODO(),
+		Client:  &http.Client{},
+		Cb:      cb,
+		CbRedis: cbRedis,
 	}
 
 	req := New(hcl)
@@ -47,7 +46,6 @@ func TestNewWithContext(t *testing.T) {
 	assert.Equal(t, hcl.Client, req.client)
 	assert.NotNil(t, req.Cb)
 	assert.NotNil(t, req.cbRedis)
-	assert.NotNil(t, req.log)
 
 	assert.Equal(t, cb.failureCount, req.Cb.failureCount)
 	assert.Equal(t, cb.resetTimeout, req.Cb.resetTimeout)
@@ -59,11 +57,10 @@ func TestNewWithContext(t *testing.T) {
 
 func TestNewWithoutContext(t *testing.T) {
 	hcl := &HCL{
-		Context:   nil,
-		Client:    &http.Client{},
-		Cb:        nil,
-		CbRedis:   nil,
-		EnableLog: false,
+		Context: nil,
+		Client:  &http.Client{},
+		Cb:      nil,
+		CbRedis: nil,
 	}
 
 	req := New(hcl)
@@ -128,6 +125,15 @@ func TestRequestSetUrl(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEnbaleLog(t *testing.T) {
+	r := &Request{
+		errs: make([]error, 0),
+	}
+
+	r.EnableLog(true)
+	r.turnOffLog()
 }
 
 func TestRequestSetQueryParam(t *testing.T) {

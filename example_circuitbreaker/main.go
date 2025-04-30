@@ -50,7 +50,7 @@ func main() {
 		ResetTimeout:  10 * time.Second,
 	})
 
-	r := hcl.New(&hcl.HCL{Client: client, EnableLog: true, Cb: cb})
+	r := hcl.New(&hcl.HCL{Client: client, Cb: cb})
 
 	for i := 0; i < 1000; i++ {
 		proccess(r)

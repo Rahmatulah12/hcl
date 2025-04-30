@@ -32,16 +32,16 @@ func main() {
 	}
 
 	r := hcl.New(&hcl.HCL{
-		Client:    client,
-		EnableLog: true,
+		Client: client,
 	})
 
 	proccess(r)
 }
 
 func proccess(r *hcl.Request) {
-	// get request
-	resp, err := r.SetUrl("http://localhost:3000/networkprofile/1122334455").
+	fmt.Println("first process")
+	// get request with log enbaled
+	resp, err := r.EnableLog(false).SetUrl("http://localhost:3000/networkprofile/1122334455").
 		SetHeaders(map[string]string{"Content-Type": "application/json"}).
 		SetQueryParams(map[string]string{"a": "b", "c": "d"}).
 		SetHeader("cicak", "cicakcicakdidinding").
@@ -88,6 +88,62 @@ func proccess(r *hcl.Request) {
 	// fmt.Println(string(b))
 
 	s := &ResponseProfile{}
+	err = resp.Result(hcl.JSON, s)
+	if err != nil {
+		return
+	}
+	fmt.Println(s)
+
+	fmt.Println("second process with the same instance, log is disabled")
+
+	// get request with log enbaled
+	resp, err = r.SetUrl("http://localhost:3000/networkprofile/1122334455").
+		SetHeaders(map[string]string{"Content-Type": "application/json"}).
+		SetQueryParams(map[string]string{"a": "b", "c": "d"}).
+		SetHeader("cicak", "cicakcicakdidinding").
+		SetHeader("X-API-KEY", "abcdefghijklmnopqrstuKKLLXX").
+		SetHeader("API_KEY", "abcdefghijklmnopqrstu").
+		SetMaskedFields([]*hcl.MaskConfig{
+			{
+				Field:     "api_key",
+				MaskType:  hcl.PartialMask,
+				ShowFirst: 5,
+				ShowLast:  3,
+			},
+			{
+				Field:     "msisdn",
+				MaskType:  hcl.PartialMask,
+				ShowFirst: 3,
+				ShowLast:  3,
+			},
+			{
+				Field:    "x-api-key",
+				MaskType: hcl.FullMask,
+			},
+			{
+				Field:    "cicak",
+				MaskType: hcl.Default,
+			},
+		}).
+		SetJsonPayload(map[string]interface{}{
+			"msisdn":     "081292021531",
+			"initialize": false,
+		}).
+		Get()
+
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	// byte response example
+	// b, err := resp.ByteResult()
+	// if err != nil {
+	// 	panic(err.Error())
+	// }
+	// fmt.Println(string(b))
+
+	s = &ResponseProfile{}
 	err = resp.Result(hcl.JSON, s)
 	if err != nil {
 		return
