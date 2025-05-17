@@ -49,6 +49,7 @@ type Request struct {
 	log             *Log
 	errs            []error
 	isRepeatableLog bool
+	closeRequest    bool
 }
 
 type HCL struct {
@@ -433,6 +434,16 @@ func (r *Request) SetCircuitBreakerKey(key string) *Request {
 	return r
 }
 
+func (r *Request) CloseRequestAfterResponse() *Request {
+	// Check if the request object is nil
+	if r == nil {
+		return nil
+	}
+
+	r.closeRequest = true
+	return r
+}
+
 func (r *Request) SetMaskedField(conf ...*MaskConfig) *Request {
 	// Check if the request object is nil
 	if r == nil {
@@ -603,6 +614,9 @@ func (r *Request) execute() (*Response, error) {
 
 	// Set headers
 	req.Header = r.header
+	if r.closeRequest {
+		req.Close = true
+	}
 
 	// Execute request
 	resp, err := r.client.Do(req)
@@ -664,6 +678,9 @@ func (r *Request) executeWithCb() (*Response, error) {
 
 	// Set headers
 	req.Header = r.header
+	if r.closeRequest {
+		req.Close = true
+	}
 
 	// Execute request
 	resp, err := r.client.Do(req)
@@ -741,6 +758,9 @@ func (r *Request) executeWithCbRedis() (*Response, error) {
 
 	// Set headers
 	req.Header = r.header
+	if r.closeRequest {
+		req.Close = true
+	}
 
 	// Execute request
 	resp, err := r.client.Do(req)
