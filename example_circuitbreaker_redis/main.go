@@ -56,6 +56,7 @@ func main() {
 	r := hcl.New(&hcl.HCL{Client: client, CbRedis: cbRedis})
 
 	for i := 0; i < 10000; i++ {
+		time.Sleep(500 * time.Millisecond)
 		proccess(r)
 	}
 }
@@ -65,8 +66,20 @@ func proccess(r *hcl.Request) {
 	resp, err := r.SetUrl("http://localhost:3000/networkprofile/1122334455").
 		SetHeaders(map[string]string{"Content-Type": "application/json"}).
 		SetQueryParams(map[string]string{"a": "b", "c": "d"}).
-		SetCircuitBreakerKey("test_a").
 		SetHeader("cicak", "cicak").
+		SetCircuitBreakerKey("test_a").
+		SetErrorHttpCodesCircuitBreaker([]int{
+			http.StatusBadRequest,
+			http.StatusUnauthorized,
+			http.StatusForbidden,
+			http.StatusNotFound,
+			http.StatusConflict,
+			http.StatusTooManyRequests,
+			http.StatusInternalServerError,
+			http.StatusServiceUnavailable,
+			http.StatusGatewayTimeout,
+			http.StatusInsufficientStorage,
+		}).
 		Get()
 
 	if err != nil {

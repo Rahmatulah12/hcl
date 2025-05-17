@@ -78,6 +78,18 @@ func proccess(r *hcl.Request) {
 			"test":  "123",
 			"image": file,
 		}).
+		SetErrorHttpCodesCircuitBreaker([]int{
+			http.StatusBadRequest,
+			http.StatusUnauthorized,
+			http.StatusForbidden,
+			http.StatusNotFound,
+			http.StatusConflict,
+			http.StatusTooManyRequests,
+			http.StatusInternalServerError,
+			http.StatusServiceUnavailable,
+			http.StatusGatewayTimeout,
+			http.StatusInsufficientStorage,
+		}).
 		Get()
 
 	if err != nil {

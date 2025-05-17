@@ -50,6 +50,7 @@ type Request struct {
 	errs            []error
 	isRepeatableLog bool
 	closeRequest    bool
+	errHttpCodes    []int
 }
 
 type HCL struct {
@@ -479,6 +480,20 @@ func (r *Request) SetMaskedFields(configs []*MaskConfig) *Request {
 	return r.SetMaskedField(configs...)
 }
 
+func (r *Request) SetErrorHttpCodesCircuitBreaker(httpCodes []int) *Request {
+	if r == nil {
+		return nil
+	}
+
+	if len(httpCodes) <= 0 {
+		return r
+	}
+
+	r.errHttpCodes = httpCodes
+
+	return r
+}
+
 // Get sends a GET request
 func (r *Request) Get() (*Response, error) {
 	// Check if the request object is nil
@@ -664,21 +679,28 @@ func (r *Request) executeRequest() (*Response, error) {
 
 // updateCircuitBreaker updates the circuit breaker state based on response status
 func (r *Request) updateCircuitBreaker(statusCode int) {
-	// Define error status codes
-	errorCodes := []int{
-		http.StatusRequestTimeout,
-		http.StatusTooManyRequests,
-		http.StatusInternalServerError,
-		http.StatusBadGateway,
-		http.StatusServiceUnavailable,
-		http.StatusGatewayTimeout,
+	if len(r.errHttpCodes) <= 0 {
+		// Define error status codes
+		r.errHttpCodes = []int{
+			http.StatusRequestTimeout,
+			http.StatusTooManyRequests,
+			http.StatusInternalServerError,
+			http.StatusBadGateway,
+			http.StatusServiceUnavailable,
+			http.StatusGatewayTimeout,
+		}
 	}
 
-	isErrorStatus := inArray(statusCode, errorCodes)
+	isErrorStatus := inArray(statusCode, r.errHttpCodes)
 
 	// Update in-memory circuit breaker
 	if r.Cb != nil {
-		r.Cb.reportResult(!isErrorStatus)
+		success := true
+		if isErrorStatus {
+			success = false
+		}
+
+		r.Cb.reportResult(success)
 	} else if r.cbRedis != nil { // Update Redis-based circuit breaker
 		if isErrorStatus {
 			r.cbRedis.recordFailure(r.cbKey)
