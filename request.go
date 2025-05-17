@@ -139,19 +139,19 @@ func (r *Request) SetUrl(uri string) *Request {
 	}
 
 	if uri == "" {
-		r.errs = append(r.errs, fmt.Errorf(msgEmptyUrl))
+		r.errs = append(r.errs, errors.New(msgEmptyUrl))
 		return r
 	}
 
 	_, err := url.ParseRequestURI(uri)
 	if err != nil {
-		r.errs = append(r.errs, fmt.Errorf("invalid URL: %w", err))
+		r.errs = append(r.errs, errors.New("invalid URL: "+err.Error()))
 		return r
 	}
 
 	parsed, err := url.Parse(uri)
 	if err != nil {
-		r.errs = append(r.errs, fmt.Errorf("failed to parse URL : %w", err))
+		r.errs = append(r.errs, errors.New("failed to parse URL : "+err.Error()))
 		return r
 	}
 
@@ -166,7 +166,7 @@ func (r *Request) SetQueryParam(key, val string) *Request {
 	}
 
 	if key == "" || val == "" {
-		r.errs = append(r.errs, fmt.Errorf(msgFailedKeyVal))
+		r.errs = append(r.errs, errors.New(msgFailedKeyVal))
 		return r
 	}
 
@@ -184,7 +184,7 @@ func (r *Request) SetQueryParam(key, val string) *Request {
 	// Validasi ulang URL untuk memastikan URL valid secara sintaksis
 	_, err := url.ParseRequestURI(r.url.String())
 	if err != nil {
-		r.errs = append(r.errs, fmt.Errorf("invalid URL: %w", err))
+		r.errs = append(r.errs, errors.New("invalid URL: %w"+err.Error()))
 		return r
 	}
 
@@ -214,7 +214,7 @@ func (r *Request) SetQueryParams(val map[string]string) *Request {
 
 func (r *Request) SetHeader(key, val string) *Request {
 	if key == "" || val == "" {
-		r.errs = append(r.errs, fmt.Errorf(msgFailedKeyVal))
+		r.errs = append(r.errs, errors.New(msgFailedKeyVal))
 		return r
 	}
 
@@ -251,7 +251,7 @@ func (r *Request) SetJsonPayload(body interface{}) *Request {
 	}
 
 	if body == nil {
-		r.errs = append(r.errs, fmt.Errorf(msgFailedBody))
+		r.errs = append(r.errs, errors.New(msgFailedBody))
 		return r
 	}
 
@@ -264,7 +264,7 @@ func (r *Request) SetJsonPayload(body interface{}) *Request {
 	default:
 		b, err = json.Marshal(v)
 		if err != nil {
-			r.errs = append(r.errs, fmt.Errorf("failed to marshal json: %w", err))
+			r.errs = append(r.errs, errors.New("failed to marshal json: "+err.Error()))
 		}
 	}
 
@@ -281,7 +281,7 @@ func (r *Request) SetXMLPayload(body interface{}) *Request {
 	}
 
 	if body == nil {
-		r.errs = append(r.errs, fmt.Errorf(msgFailedBody))
+		r.errs = append(r.errs, errors.New(msgFailedBody))
 		return r
 	}
 
@@ -325,35 +325,63 @@ func (r *Request) SetFormData(data map[string]interface{}) *Request {
 
 		switch v := val.(type) {
 		case string:
-			writer.WriteField(key, v)
-		case int, int8, int16, int32, int64:
-			writer.WriteField(key, strconv.FormatInt(v.(int64), 10))
-		case float32, float64:
-			writer.WriteField(key, strconv.FormatFloat(v.(float64), 'f', -1, 64))
-		case bool:
-			writer.WriteField(key, strconv.FormatBool(v))
-		case io.Reader:
-			part, err := writer.CreateFormFile(key, "file") // Default filename "file"
+			err := writer.WriteField(key, v)
 			if err != nil {
 				r.errs = append(r.errs, err)
 				return r
 			}
-			io.Copy(part, v)
+		case int, int8, int16, int32, int64:
+			err := writer.WriteField(key, strconv.FormatInt(v.(int64), 10))
+			if err != nil {
+				r.errs = append(r.errs, err)
+				return r
+			}
+		case float32, float64:
+			err := writer.WriteField(key, strconv.FormatFloat(v.(float64), 'f', -1, 64))
+			if err != nil {
+				r.errs = append(r.errs, err)
+				return r
+			}
+		case bool:
+			err := writer.WriteField(key, strconv.FormatBool(v))
+			if err != nil {
+				r.errs = append(r.errs, err)
+				return r
+			}
 		case *os.File:
 			part, err := writer.CreateFormFile(key, v.Name())
 			if err != nil {
 				r.errs = append(r.errs, err)
 				return r
 			}
-			io.Copy(part, v)
+			_, err = io.Copy(part, v)
+			if err != nil {
+				r.errs = append(r.errs, err)
+				return r
+			}
+		case io.Reader:
+			part, err := writer.CreateFormFile(key, "file") // Default filename "file"
+			if err != nil {
+				r.errs = append(r.errs, err)
+				return r
+			}
+			_, err = io.Copy(part, v)
+			if err != nil {
+				r.errs = append(r.errs, err)
+				return r
+			}
 		default:
 			msg := fmt.Sprintf("Unsupported type for key: %s\n", key)
-			r.errs = append(r.errs, fmt.Errorf(msg))
+			r.errs = append(r.errs, errors.New(msg))
 			return r
 		}
 	}
 
-	writer.Close()
+	err := writer.Close()
+	if err != nil {
+		r.errs = append(r.errs, err)
+		return r
+	}
 
 	r.header.Set(contentType, writer.FormDataContentType())
 	r.body = io.NopCloser(&body)
@@ -368,7 +396,7 @@ func (r *Request) SetFormURLEncoded(data map[string]string) *Request {
 	}
 
 	if data == nil {
-		r.errs = append(r.errs, fmt.Errorf(msgFailedBody))
+		r.errs = append(r.errs, errors.New(msgFailedBody))
 		return r
 	}
 

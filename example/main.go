@@ -78,7 +78,12 @@ func proccess(r *hcl.Request) {
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		err = resp.Body.Close()
+		if err != nil {
+			return
+		}
+	}()
 
 	// byte response example
 	// b, err := resp.ByteResult()
@@ -134,7 +139,12 @@ func proccess(r *hcl.Request) {
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		err = resp.Body.Close()
+		if err != nil {
+			return
+		}
+	}()
 
 	// byte response example
 	// b, err := resp.ByteResult()

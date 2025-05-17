@@ -2,7 +2,6 @@ package hcl
 
 import (
 	"encoding/json"
-	"net"
 	"reflect"
 	"strings"
 )
@@ -156,14 +155,6 @@ func maskNestedJSON(data map[string]interface{}, configs []*MaskConfig) {
 			(data)[key] = nestedMap
 		}
 	}
-}
-
-func parseHostPort(addr string) (host, port string) {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return "", ""
-	}
-	return host, port
 }
 
 func inArray(needle interface{}, hystack interface{}) bool {
