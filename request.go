@@ -479,16 +479,6 @@ func (r *Request) SetMaskedFields(configs []*MaskConfig) *Request {
 	return r.SetMaskedField(configs...)
 }
 
-// sendRequest handles all HTTP methods using a single function
-func (r *Request) sendRequest(method RequestMethod) (*Response, error) {
-	if r == nil {
-		return nil, fmt.Errorf("request cannot be nil, please initiate library")
-	}
-
-	r.method = string(method)
-	return r.chooseExecutionStrategy()
-}
-
 // Get sends a GET request
 func (r *Request) Get() (*Response, error) {
 	// Check if the request object is nil
@@ -534,25 +524,6 @@ func (r *Request) Delete() (*Response, error) {
 	return r.sendRequest(DELETE)
 }
 
-// chooseExecutionStrategy determines which execution method to use based on circuit breaker configuration
-func (r *Request) chooseExecutionStrategy() (*Response, error) {
-	// Check if the request object is nil
-	if r == nil {
-		return nil, errors.New("failed to execute process, please initiate first")
-	}
-
-	if r.Cb != nil && r.cbRedis != nil {
-		return r.execute()
-	}
-	if r.Cb != nil {
-		return r.executeWithCb()
-	}
-	if r.cbRedis != nil {
-		return r.executeWithCbRedis()
-	}
-	return r.execute()
-}
-
 func (r *Request) fetchErrors() error {
 	// Check if the request object is nil
 	if r == nil {
@@ -570,66 +541,52 @@ func (r *Request) fetchErrors() error {
 	return nil
 }
 
-func (r *Request) execute() (*Response, error) {
+// sendRequest handles all HTTP methods using a single function
+func (r *Request) sendRequest(method RequestMethod) (*Response, error) {
 	if r == nil {
 		return nil, fmt.Errorf("request cannot be nil, please initiate library")
 	}
 
-	if r.client == nil {
-		r.client = http.DefaultClient
-	}
-
-	r.log.initiate()
-	r.log.setRequest(&http.Request{
-		Method: r.method,
-		URL:    r.url,
-		Header: r.header,
-	})
-
-	defer func() {
-		r.log.writeLog()
-
-		if !r.isRepeatableLog {
-			r.turnOffLog()
-		}
-	}()
-
-	// Fetch errors if any
-	if err := r.fetchErrors(); err != nil {
-		r.log.setError(err)
-		return nil, err
-	}
-
-	if r.ctx == nil {
-		r.ctx = context.Background()
-	}
-
-	// Create HTTP request
-	req, err := http.NewRequestWithContext(r.ctx, r.method, r.url.String(), r.body)
-	if err != nil {
-		r.log.setError(err)
-		return nil, err
-	}
-	r.log.setRequest(req)
-
-	// Set headers
-	req.Header = r.header
-	if r.closeRequest {
-		req.Close = true
-	}
-
-	// Execute request
-	resp, err := r.client.Do(req)
-	if err != nil {
-		r.log.setError(err)
-		return nil, err
-	}
-	r.log.setResponse(resp)
-
-	return (*Response)(resp), nil
+	r.method = string(method)
+	return r.chooseExecutionStrategy()
 }
 
-func (r *Request) executeWithCb() (*Response, error) {
+// chooseExecutionStrategy determines which execution method to use based on circuit breaker configuration
+func (r *Request) chooseExecutionStrategy() (*Response, error) {
+	// Check if the request object is nil
+	if r == nil {
+		return nil, errors.New("failed to execute process, please initiate first")
+	}
+
+	// Pre-execution circuit breaker checks
+	var cbErr error
+	if r.Cb != nil && !r.Cb.allow() {
+		cbErr = errRefuse
+	} else if r.cbRedis != nil {
+		cbErr = r.cbRedis.allowRequest(r.cbKey)
+	}
+
+	if cbErr != nil {
+		if r.log != nil {
+			r.log.setError(cbErr)
+		}
+		return nil, cbErr
+	}
+
+	// Execute the request
+	resp, err := r.executeRequest()
+	if err != nil {
+		return nil, err
+	}
+
+	// Post-execution circuit breaker updates
+	r.updateCircuitBreaker(resp.StatusCode)
+
+	return resp, nil
+}
+
+// executeRequest handles the common HTTP request execution logic
+func (r *Request) executeRequest() (*Response, error) {
 	if r == nil {
 		return nil, fmt.Errorf("request cannot be nil, please initiate library")
 	}
@@ -638,32 +595,32 @@ func (r *Request) executeWithCb() (*Response, error) {
 		r.client = http.DefaultClient
 	}
 
-	r.log.initiate()
-	r.log.setRequest(&http.Request{
-		Method: r.method,
-		URL:    r.url,
-		Header: r.header,
-	})
+	// Initialize logging
+	if r.log != nil {
+		r.log.initiate()
+		r.log.setRequest(&http.Request{
+			Method: r.method,
+			URL:    r.url,
+			Header: r.header,
+		})
 
-	defer func() {
-		r.log.writeLog()
-
-		if !r.isRepeatableLog {
-			r.turnOffLog()
-		}
-	}()
+		defer func() {
+			r.log.writeLog()
+			if !r.isRepeatableLog {
+				r.turnOffLog()
+			}
+		}()
+	}
 
 	// Fetch errors if any
 	if err := r.fetchErrors(); err != nil {
-		r.log.setError(err)
+		if r.log != nil {
+			r.log.setError(err)
+		}
 		return nil, err
 	}
 
-	if !r.Cb.allow() {
-		r.log.setError(errRefuse)
-		return nil, errRefuse
-	}
-
+	// Set default context if not provided
 	if r.ctx == nil {
 		r.ctx = context.Background()
 	}
@@ -671,120 +628,62 @@ func (r *Request) executeWithCb() (*Response, error) {
 	// Create HTTP request
 	req, err := http.NewRequestWithContext(r.ctx, r.method, r.url.String(), r.body)
 	if err != nil {
-		r.log.setError(err)
+		if r.log != nil {
+			r.log.setError(err)
+		}
 		return nil, err
 	}
-	r.log.setRequest(req)
 
-	// Set headers
+	// Set request details
 	req.Header = r.header
 	if r.closeRequest {
 		req.Close = true
 	}
 
+	// Log the request
+	if r.log != nil {
+		r.log.setRequest(req)
+	}
+
 	// Execute request
 	resp, err := r.client.Do(req)
 	if err != nil {
-		r.log.setError(err)
+		if r.log != nil {
+			r.log.setError(err)
+		}
 		return nil, err
 	}
-	r.log.setResponse(resp)
 
-	if inArray(
-		resp.StatusCode,
-		[]int{
-			http.StatusRequestTimeout,
-			http.StatusTooManyRequests,
-			http.StatusInternalServerError,
-			http.StatusBadGateway,
-			http.StatusServiceUnavailable,
-			http.StatusGatewayTimeout,
-		},
-	) {
-		r.Cb.reportResult(false)
-	} else {
-		r.Cb.reportResult(true)
+	// Log the response
+	if r.log != nil {
+		r.log.setResponse(resp)
 	}
 
 	return (*Response)(resp), nil
 }
 
-func (r *Request) executeWithCbRedis() (*Response, error) {
-	if r == nil {
-		return nil, fmt.Errorf("request cannot be nil, please initiate library")
+// updateCircuitBreaker updates the circuit breaker state based on response status
+func (r *Request) updateCircuitBreaker(statusCode int) {
+	// Define error status codes
+	errorCodes := []int{
+		http.StatusRequestTimeout,
+		http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout,
 	}
 
-	if r.client == nil {
-		r.client = http.DefaultClient
-	}
+	isErrorStatus := inArray(statusCode, errorCodes)
 
-	r.log.initiate()
-	r.log.setRequest(&http.Request{
-		Method: r.method,
-		URL:    r.url,
-		Header: r.header,
-	})
-
-	defer func() {
-		r.log.writeLog()
-
-		if !r.isRepeatableLog {
-			r.turnOffLog()
+	// Update in-memory circuit breaker
+	if r.Cb != nil {
+		r.Cb.reportResult(!isErrorStatus)
+	} else if r.cbRedis != nil { // Update Redis-based circuit breaker
+		if isErrorStatus {
+			r.cbRedis.recordFailure(r.cbKey)
+		} else {
+			r.cbRedis.reset(r.cbKey)
 		}
-	}()
-
-	// Fetch errors if any
-	if err := r.fetchErrors(); err != nil {
-		r.log.setError(err)
-		return nil, err
 	}
-
-	if err := r.cbRedis.allowRequest(r.cbKey); err != nil {
-		r.log.setError(err)
-		return nil, err
-	}
-
-	if r.ctx == nil {
-		r.ctx = context.Background()
-	}
-
-	// Create HTTP request
-	req, err := http.NewRequestWithContext(r.ctx, r.method, r.url.String(), r.body)
-	if err != nil {
-		r.log.setError(err)
-		return nil, err
-	}
-	r.log.setRequest(req)
-
-	// Set headers
-	req.Header = r.header
-	if r.closeRequest {
-		req.Close = true
-	}
-
-	// Execute request
-	resp, err := r.client.Do(req)
-	if err != nil {
-		r.log.setError(err)
-		return nil, err
-	}
-	r.log.setResponse(resp)
-
-	if inArray(
-		resp.StatusCode,
-		[]int{
-			http.StatusRequestTimeout,
-			http.StatusTooManyRequests,
-			http.StatusInternalServerError,
-			http.StatusBadGateway,
-			http.StatusServiceUnavailable,
-			http.StatusGatewayTimeout,
-		},
-	) {
-		r.cbRedis.recordFailure(r.cbKey)
-	} else {
-		r.cbRedis.reset(r.cbKey)
-	}
-
-	return (*Response)(resp), nil
 }
