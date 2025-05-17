@@ -89,7 +89,7 @@ func proccess(r *hcl.Request) {
 	// fmt.Println(string(b))
 
 	s := &Response{}
-	err = resp.Result(hcl.JSON, s)
+	err = resp.ResultJson(s)
 	if err != nil {
 		fmt.Println(err.Error())
 		return

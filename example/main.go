@@ -93,7 +93,7 @@ func proccess(r *hcl.Request) {
 	// fmt.Println(string(b))
 
 	s := &ResponseProfile{}
-	err = resp.Result(hcl.JSON, s)
+	err = resp.ResultJson(s)
 	if err != nil {
 		return
 	}
@@ -154,7 +154,7 @@ func proccess(r *hcl.Request) {
 	// fmt.Println(string(b))
 
 	s = &ResponseProfile{}
-	err = resp.Result(hcl.JSON, s)
+	err = resp.ResultJson(s)
 	if err != nil {
 		return
 	}
