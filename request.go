@@ -589,6 +589,10 @@ func (r *Request) execute() (*Response, error) {
 		return nil, err
 	}
 
+	if r.ctx == nil {
+		r.ctx = context.Background()
+	}
+
 	// Create HTTP request
 	req, err := http.NewRequestWithContext(r.ctx, r.method, r.url.String(), r.body)
 	if err != nil {
@@ -644,6 +648,10 @@ func (r *Request) executeWithCb() (*Response, error) {
 	if !r.Cb.allow() {
 		r.log.setError(errRefuse)
 		return nil, errRefuse
+	}
+
+	if r.ctx == nil {
+		r.ctx = context.Background()
 	}
 
 	// Create HTTP request
@@ -717,6 +725,10 @@ func (r *Request) executeWithCbRedis() (*Response, error) {
 	if err := r.cbRedis.allowRequest(r.cbKey); err != nil {
 		r.log.setError(err)
 		return nil, err
+	}
+
+	if r.ctx == nil {
+		r.ctx = context.Background()
 	}
 
 	// Create HTTP request
