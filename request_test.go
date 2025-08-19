@@ -132,7 +132,7 @@ func TestEnbaleLog(t *testing.T) {
 		errs: make([]error, 0),
 	}
 
-	r.EnableLog(true)
+	r.EnableLog()
 	r.turnOffLog()
 }
 

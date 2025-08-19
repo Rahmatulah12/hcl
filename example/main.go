@@ -41,7 +41,7 @@ func main() {
 func proccess(r *hcl.Request) {
 	fmt.Println("first process")
 	// get request with log enbaled
-	resp, err := r.EnableLog(false).SetUrl("http://localhost:3000/networkprofile/1122334455").
+	resp, err := r.EnableLog().SetUrl("http://localhost:3000/networkprofile/1122334455").
 		SetHeaders(map[string]string{"Content-Type": "application/json"}).
 		SetQueryParams(map[string]string{"a": "b", "c": "d"}).
 		SetHeader("cicak", "cicakcicakdidinding").

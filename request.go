@@ -119,13 +119,15 @@ func initializeLog(enableLog bool) *Log {
 	return nil
 }
 
-func (r *Request) EnableLog(isRepeatableLog bool) *Request {
+func (r *Request) EnableLog() *Request {
 	if r == nil {
 		return nil
 	}
 
-	r.isRepeatableLog = isRepeatableLog
-	r.log = initializeLog(true)
+	enable := true
+
+	r.isRepeatableLog = enable
+	r.log = initializeLog(enable)
 	return r
 }
 
